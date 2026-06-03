@@ -45,22 +45,38 @@ services:
       - ai-network
 
   openclaw:
-    image: alpine/openclaw:latest
-    container_name: openclaw
-    restart: unless-stopped
+    image: ${OPENCLAW_IMAGE:-openclaw:local}
     environment:
-      OLLAMA_API_KEY: ollama-local
-      OPENCLAW_HOME: /home/openclaw/.openclaw
-
+      HOME: /home/node
+      TERM: xterm-256color
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+      CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY}
+      CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY}
+      CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE}
     volumes:
-      - ./openclaw.json:/home/node/.openclaw/openclaw.json
+      - ${OPENCLAW_CONFIG_DIR}:/home/node/.openclaw
+      - ${OPENCLAW_WORKSPACE_DIR}:/home/node/.openclaw/workspace
+    ports:
+      - "${OPENCLAW_GATEWAY_PORT:-18789}:18789"
+      - "${OPENCLAW_BRIDGE_PORT:-18790}:18790"
+    init: true
+    restart: unless-stopped
+    command:
+      [
+        "node",
+        "dist/index.js",
+        "gateway",
+        "--bind",
+        "${OPENCLAW_GATEWAY_BIND:-lan}",
+        "--port",
+        "18789",
+      ]
+
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
     networks:
       - ai-network
-
-    command: ["openclaw", "start", "--allow-unconfigured"]
     
 
 networks:
