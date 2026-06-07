@@ -102,6 +102,10 @@ services:
       HINDSIGHT_API_LLM_BASE_URL: http://host.docker.internal:11434
       HINDSIGHT_API_LLM_MODEL: charaf/Huihui-Qwen3.6-35B-A3B-abliterated-mlx:instruct
 
+      HINDSIGHT_API_EMBEDDING_PROVIDER: ollama
+      HINDSIGHT_API_EMBEDDING_BASE_URL: http://host.docker.internal:11434
+      HINDSIGHT_API_EMBEDDING_MODEL: bge-m3
+
     networks:
       - ai-network
     
