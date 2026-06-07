@@ -47,6 +47,9 @@ services:
   openclaw:
     image: ${OPENCLAW_IMAGE:-openclaw:local}
     container_name: openclaw
+    depends_on:
+      hindsight:
+        condition: service_healthy
 
     environment:
       HOME: /home/node
@@ -87,6 +90,11 @@ services:
     ports:
       - "8888:8888"
       - "9999:9999"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8888/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     volumes:
       - hindsight_data:/home/hindsight/.pg0
     environment:
