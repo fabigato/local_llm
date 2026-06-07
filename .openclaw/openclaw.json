@@ -16,7 +16,7 @@
       "mode": "token"
     },
     "port": 18789,
-    "bind": "loopback",
+    "bind": "lan",
     "tailscale": {
       "mode": "off",
       "resetOnExit": false
