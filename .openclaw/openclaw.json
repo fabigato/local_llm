@@ -35,6 +35,16 @@
         "sms.send",
         "sms.search"
       ]
+    },
+    "http": {
+      "endpoints": {
+        "chatCompletions": {
+          "enabled": true
+        },
+        "responses": {
+          "enabled": true
+        }
+      }
     }
   },
   "session": {
@@ -171,5 +181,9 @@
         "mode": "api_key"
       }
     }
+  },
+  "meta": {
+    "lastTouchedVersion": "2026.5.28",
+    "lastTouchedAt": "2026-06-04T22:01:22.968Z"
   }
 }
