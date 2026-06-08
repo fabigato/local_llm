@@ -63,6 +63,9 @@
       },
       "hindsight-openclaw": {
         "enabled": true,
+        "hooks": {
+          "allowConversationAccess": true
+        },
         "config": {
           "hindsightApiUrl": "http://hindsight:8888",
           "llmProvider": "openai",
@@ -196,6 +199,6 @@
   },
   "meta": {
     "lastTouchedVersion": "2026.5.28",
-    "lastTouchedAt": "2026-06-08T22:10:49.134Z"
+    "lastTouchedAt": "2026-06-08T22:19:20.261Z"
   }
 }
