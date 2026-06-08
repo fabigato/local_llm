@@ -54,6 +54,9 @@
     "profile": "coding"
   },
   "plugins": {
+    "slots": {
+      "memory": "hindsight-openclaw"
+    },
     "entries": {
       "ollama": {
         "enabled": true
@@ -61,7 +64,10 @@
       "hindsight-openclaw": {
         "enabled": true,
         "config": {
-          "hindsightApiUrl": "http://hindsight:8888"
+          "hindsightApiUrl": "http://hindsight:8888",
+          "llmProvider": "openai",
+          "llmModel": "gemma3:12b",
+          "llmBaseUrl": "http://ollama:11434/v1"
         }
       }
     }
@@ -190,6 +196,6 @@
   },
   "meta": {
     "lastTouchedVersion": "2026.5.28",
-    "lastTouchedAt": "2026-06-04T22:01:22.968Z"
+    "lastTouchedAt": "2026-06-08T22:10:49.134Z"
   }
 }

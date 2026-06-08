@@ -58,6 +58,9 @@ services:
       CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY}
       CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY}
       CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE}
+
+      # Tell OpenClaw to look inside our baked-in system directory for extensions
+      OPENCLAW_PLUGINS_PATH: /usr/share/openclaw/extensions
     volumes:
       - ${OPENCLAW_CONFIG_DIR}:/home/node/.openclaw
       - ${OPENCLAW_WORKSPACE_DIR}:/home/node/.openclaw/workspace
@@ -66,16 +69,14 @@ services:
       - "${OPENCLAW_BRIDGE_PORT:-18790}:18790"
     init: true
     restart: unless-stopped
+    # Check if plugin folder exists. If missing, install it once directly into the mounted volume, then boot.
     command:
       [
-        "node",
-        "dist/index.js",
-        "gateway",
-        "--bind",
-        "${OPENCLAW_GATEWAY_BIND:-lan}",
-        "--port",
-        "18789",
+        "sh",
+        "-c",
+        "if [ ! -d '/home/node/.openclaw/extensions/hindsight-openclaw' ] || [ ! -d '/home/node/.openclaw/npm' ]; then openclaw plugins install --force @vectorize-io/hindsight-openclaw && rm -rf /tmp/jiti/; fi && exec node dist/index.js gateway --bind ${OPENCLAW_GATEWAY_BIND:-lan} --port 18789"
       ]
+
 
     extra_hosts:
       - "host.docker.internal:host-gateway"
