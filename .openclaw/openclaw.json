@@ -75,6 +75,14 @@
       }
     }
   },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "botToken": "${TELEGRAM_BOT_TOKEN}",
+      "dmPolicy": "pairing",
+      "groupPolicy": "allowlist"
+    }
+  },
   "models": {
     "mode": "merge",
     "providers": {
@@ -199,6 +207,11 @@
   },
   "meta": {
     "lastTouchedVersion": "2026.5.28",
-    "lastTouchedAt": "2026-06-08T22:19:20.261Z"
+    "lastTouchedAt": "2026-06-14T20:46:28.689Z"
+  },
+  "commands": {
+    "ownerAllowFrom": [
+      "${TELEGRAM_OWNER}"
+    ]
   }
 }

@@ -8,6 +8,10 @@ URL: http://openclaw:18789/v1
 Auth: Bearer (put your openclaw auth token)
 API Type: Chat Completions
 
+### Manage secrets in openclaw.json
+openclaw.json allows for env var substitution. You can add a secret to your local .env, then inject it in docker-compose.yml under openclaw's environment section, and finally call it in openclaw.json.
+For instance, I created TELEGRAM_USER_ID to store the value of my telegram user id, then the TELEGRAM_OWNER variable is defined as telegram:${OPENCLAW_TELEGRAM_USER_ID}, so it can be inyected in openclaw.json inside the "ownerAllowFrom" list
+
 ### Connect to local ollama
 Manage Ollama API connections, add
 URL: http://host.docker.internal:11434

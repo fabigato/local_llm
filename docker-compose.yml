@@ -58,6 +58,8 @@ services:
       CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY}
       CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY}
       CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE}
+      TELEGRAM_OWNER: telegram:${OPENCLAW_TELEGRAM_USER_ID}
+      TELEGRAM_BOT_TOKEN: ${OPENCLAW_TELEGRAM_BOT_TOKEN}
 
       # Tell OpenClaw to look inside our baked-in system directory for extensions
       OPENCLAW_PLUGINS_PATH: /usr/share/openclaw/extensions
