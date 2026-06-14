@@ -51,14 +51,23 @@
     "dmScope": "per-channel-peer"
   },
   "tools": {
-    "profile": "coding"
+    "profile": "coding",
+    "web": {
+      "search": {
+        "provider": "duckduckgo"
+      }
+    }
   },
   "plugins": {
+    "allow": ["hindsight-openclaw"],
     "slots": {
       "memory": "hindsight-openclaw"
     },
     "entries": {
       "ollama": {
+        "enabled": true
+      },
+      "browser": {
         "enabled": true
       },
       "hindsight-openclaw": {
@@ -71,6 +80,14 @@
           "llmProvider": "openai",
           "llmModel": "gemma3:12b",
           "llmBaseUrl": "http://ollama:11434/v1"
+        }
+      },
+      "duckduckgo": {
+        "config": {
+          "webSearch": {
+            "region": "nl-nl", 
+            "safeSearch": "off" 
+          }
         }
       }
     }
