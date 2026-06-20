@@ -16,13 +16,18 @@
       "mode": "token"
     },
     "port": 18789,
-    "bind": "loopback",
+    "bind": "lan",
     "tailscale": {
       "mode": "off",
       "resetOnExit": false
     },
     "controlUi": {
-      "allowInsecureAuth": true
+      "allowInsecureAuth": true,
+      "allowedOrigins": [
+        "http://localhost:18789",
+        "http://127.0.0.1:18789",
+        "http://${OPENCLAW_HOST_LAN_IP}:18789"
+      ]
     },
     "nodes": {
       "denyCommands": [
