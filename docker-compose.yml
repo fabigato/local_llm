@@ -13,6 +13,21 @@ services:
 
     environment:
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      # Globally enables the memory framework architecture
+      - ENABLE_MEMORIES=True
+      # Controls permissions for user memory access (Defaults to True)
+      - USER_PERMISSIONS_FEATURES_MEMORIES=True
+      - FEATURES_MEMORIES=True # Forces the feature flag ON for all users 
+
+      - ENABLE_WEB_SEARCH=True
+      # Use Brave Search as the web search engine
+      - WEB_SEARCH_ENGINE=brave
+      # API key injected from .env
+      - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY}
+
+      # 3. CRITICAL: Forces Open WebUI to read docker-compose environment variables 
+      # over database overrides if you update them in the future.
+      - ENABLE_PERSISTENT_CONFIG=False
 
     volumes:
       - open-webui:/app/backend/data
@@ -33,9 +48,18 @@ services:
       - "80:80"
       - "443:443"
 
+    environment:
+      # Domains are injected into the nginx config at container startup via the
+      # official image's envsubst-on-templates feature. Keeps real domains out
+      # of git. Set these in .env (see .env.example).
+      PRIMARY_DOMAIN: ${PRIMARY_DOMAIN}
+      SECONDARY_DOMAIN: ${SECONDARY_DOMAIN}
+
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      # *.template files here are rendered (envsubst) into /etc/nginx/conf.d at
+      # startup. The output dir must NOT be a read-only mount.
+      - ./nginx/templates:/etc/nginx/templates:ro
 
       # certificates
       - ./nginx/certbot/conf:/etc/letsencrypt

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+  <key>Label</key>
+  <string>com.certbot.docker.renew</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string><path-to-script>/certbot-renew.sh</string>
+  </array>
+
+  <key>StartInterval</key>
+  <integer>43200</integer> <!-- 12 hours -->
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- important for Docker access -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+  </dict>
+
+</dict>
+</plist>

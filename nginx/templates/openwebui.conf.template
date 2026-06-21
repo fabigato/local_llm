@@ -1,7 +1,7 @@
 server {
     listen 80;
 
-    server_name chat.fabigato.com;
+    server_name ${PRIMARY_DOMAIN};
 
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
@@ -15,7 +15,7 @@ server {
 server {
     listen 80;
 
-    server_name chat.redmemoria.net;
+    server_name ${SECONDARY_DOMAIN};
 
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
@@ -30,10 +30,10 @@ server {
     listen 443 ssl;
     http2 on;
 
-    server_name chat.fabigato.com;
+    server_name ${PRIMARY_DOMAIN};
 
-    ssl_certificate /etc/letsencrypt/live/chat.fabigato.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/chat.fabigato.com/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/${PRIMARY_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${PRIMARY_DOMAIN}/privkey.pem;
 
     client_max_body_size 100M;
 
@@ -59,10 +59,10 @@ server {
     listen 443 ssl;
     http2 on;
 
-    server_name chat.redmemoria.net;
+    server_name ${SECONDARY_DOMAIN};
 
-    ssl_certificate /etc/letsencrypt/live/chat.redmemoria.net/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/chat.redmemoria.net/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/${SECONDARY_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${SECONDARY_DOMAIN}/privkey.pem;
 
     location / {
         proxy_pass http://open-webui:8080;

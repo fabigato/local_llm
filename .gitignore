@@ -4,3 +4,10 @@
 # ignore everything in .openclaw except openclaw.json
 .openclaw/*
 !.openclaw/openclaw.json
+
+# nginx: certbot state contains real domains in paths AND TLS private keys.
+# Never commit these. Rendered conf output lives only inside the container.
+nginx/certbot/conf/
+!nginx/certbot/conf/renewal-hooks/deploy/reload-nginx.sh
+nginx/certbot/www/
+nginx/conf.d/

@@ -1,12 +1,73 @@
-# How to
-## connect to openclaw:
-Open webui settings are sql db first. You could setup add OLLAMA_BASE_URL=http://host.docker.internal:11434 or OPENAI_API_BASE_URL=http://openclaw:18789/v1 to the container environment variables but if you setup up a connection to a different llm in the ui, that will get saved in the litesql db and will take precedence over env vars. The db has user specific settings you don't want to commit, so commiting the db is not a good approach. Therefore, whatever changes you do in the ui will not be part of the containerized application and will have to be changed there in place. Here some useful settings You can put onder admin panel -> settings -> connections
+# Local LLM
+An (almost) fully containerized local llm system, relying on a locally installed ollama and then the rest is all managed by docker.
 
-### Connect to openclaw
+## Design principles
+- **reproducibility**: docker first approach. Anything that can be configured in docker compose will be configured there, relying on service specific configuration files only when docker compose is impossible or too inconvenient
+- **privacy**: local models first
+- **secret managegement**: no secrets commited, ever. Use .env file to inject values into the docker compose and from there into any service specific config files
+- **multi tenancy**: system allows multiple users when possible. Features such as memory have to respect this
+
+# Services
+## nginx
+Reverse proxy to forward incoming traffic to the exposed services. This handles SSL, so https traffic ends here, after nginx, open webui sees only http requests. Encryption is managed by letsencrypt, a certbot docker image is used to request and renew ssl certificates.
+
+### certbot
+The ssl certificate can be downloaded for the first time with this docker command:
+````
+docker run --rm \
+  -v $(pwd)/nginx/certbot/conf:/etc/letsencrypt \
+  -v $(pwd)/nginx/certbot/www:/var/www/certbot \
+  certbot/certbot certonly \
+  --webroot \
+  -w /var/www/certbot \
+  -d chat.example.com \
+  --agree-tos \
+  --no-eff-email \
+  -m example@email.com \
+  --non-interactive
+````
+
+To renew the certificate, the following script is provided:
+```
+scripts/certbot-renew.sh
+````
+Then you can create a cron job (or launchd on mac) to run it on a cadence. For instance daily, the certbot container won't actually renew the certificate unless is necessary.
+
+To make sure nginx restarts upon certificate renewal, the script nginx/certbot/conf/renewal-hooks/deploy/reload-nginx.sh is provided as an nginx renewal hook, meaning it will be triggered when nginx reports a certificate renewal, and the script will simply restart the nginx docker container by name.
+
+### The initial http only trick
+nginx open webui config is such that http just forwards to https, so when you run the initial request to letsencrypt for a certificate, you get locked in a chicken egg problem, since you need to prove your control of the server to letsencrypt by putting their challenge in a location they can access. But if only https is serving external requests, nobody can access your https server to verify you placed the challenge file there. To this end, the nginx/templates.httponly/openwebui_httponly.conf.template is provided, to setup an initial, temporary http only server so you can download and place the challenge file. Then you can switch to the proper http -> https config.
+
+## Open WebUI
+Interface managing multi tenancy, login, chat history and agentic tooling
+
+### A note on open webui configuration env vars
+
+Open webui settings are sql db first. You could setup add OLLAMA_BASE_URL=http://host.docker.internal:11434 or OPENAI_API_BASE_URL=http://openclaw:18789/v1 to the container environment variables but if you setup up a connection to a different llm in the ui, that will get saved in the litesql db and will take precedence over env vars. The db has user specific settings you don't want to commit, so commiting the db is not a good approach. Therefore, whatever changes you do in the ui will not be part of the containerized application and will have to be changed there in place. Environment variables are given prefence where pragmatic, [here's a list of supported variables](https://docs.openwebui.com/reference/env-configuration/).
+By default, open webui sql database settings take precedence over env vars. To change this, the ENABLE_PERSISTENT_CONFIG variable is set to False in docker compose. That makes env vars take precedence.
+
+### What doesn't go in env vars
+
+#### connect to openclaw as llm backend
+admin panel -> settings -> connections
 Manage OpenAI API connections, add
 URL: http://openclaw:18789/v1
 Auth: Bearer (put your openclaw auth token)
 API Type: Chat Completions
+
+
+#### per model tool usage
+You can enable tools such as open webui memories globally, with ENABLE_MEMORIES=True, you can also give users permission to activate the setting with USER_PERMISSIONS_FEATURES_MEMORIES=True and you can also force the setting to be enabled for all users by default with FEATURES_MEMORIES=True, but if you want a specific (tool usage native) model to use the memory tools, you have go to that model in the admin panel, advanced params and set function calling to Native.
+
+#### per model web search
+This is also something to be set on the models menu in the admin panel. Each model needs its own checkbox for web search to be ticked. A system prompt can also be set on that screen to guide model to use web search, for instance:
+````
+You are equipped with user memory tools. Use them to reference past facts or save new preferences when the user shares them.
+````
+
+## Openclaw
+Used separately from open webui, different use case, just bundled together. Openclaw is essencialy single-tenant, due to its memory mechanism.
+Openclaw can be fully configured in the provided openclaw.json file, that should be mounted on the container.
 
 ### Manage secrets in openclaw.json
 openclaw.json allows for env var substitution. You can add a secret to your local .env, then inject it in docker-compose.yml under openclaw's environment section, and finally call it in openclaw.json.
@@ -17,9 +78,15 @@ Manage Ollama API connections, add
 URL: http://host.docker.internal:11434
 Auth: None
 
-## Hide openclaw models from users
+### Hide openclaw models from users
 You can't group them all under openclaw. Whether a model comes from ollama directly or openclaw, it's still just one model in the list. Permissions per model should be managed separately, using RBAC, so you can manually mark each openclaw model as private, only for some users and the rest as public or assign access to a group
 
-## forward request headers to downstream llm
+### forward request headers to downstream llm
 add env var:
 ENABLE_FORWARD_USER_INFO_HEADERS=true
+
+## Hindsight
+Advanced episodic memory engine, with knowledge graph. This service provides a memory bank that can be set to different levels of granularity, even per user, per input channel. The knowledge graph and time tags in the memories allow for advanced reasoning. It supports openclaw natively and comes with its own ui
+
+# Secret management
+put your secrets in a local .env file on the project root. An .env.example file is provided as guide. Whatever you put in there will be inyected on docker compose
