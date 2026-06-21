@@ -65,6 +65,9 @@ This is also something to be set on the models menu in the admin panel. Each mod
 You are equipped with user memory tools. Use them to reference past facts or save new preferences when the user shares them.
 ````
 
+#### Per model personality
+In the models menu in the admin panel, you can put a system prompt telling the bot all you want him to be.
+
 ## Openclaw
 Used separately from open webui, different use case, just bundled together. Openclaw is essencialy single-tenant, due to its memory mechanism.
 Openclaw can be fully configured in the provided openclaw.json file, that should be mounted on the container.
