@@ -64,7 +64,9 @@
     }
   },
   "plugins": {
-    "allow": ["hindsight-openclaw"],
+    "allow": [
+      "hindsight-openclaw"
+    ],
     "slots": {
       "memory": "hindsight-openclaw"
     },
@@ -90,8 +92,8 @@
       "duckduckgo": {
         "config": {
           "webSearch": {
-            "region": "nl-nl", 
-            "safeSearch": "off" 
+            "region": "nl-nl",
+            "safeSearch": "off"
           }
         }
       }
@@ -229,7 +231,7 @@
   },
   "meta": {
     "lastTouchedVersion": "2026.5.28",
-    "lastTouchedAt": "2026-06-14T20:46:28.689Z"
+    "lastTouchedAt": "2026-07-05T19:26:57.559Z"
   },
   "commands": {
     "ownerAllowFrom": [

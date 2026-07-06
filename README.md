@@ -68,6 +68,32 @@ You are equipped with user memory tools. Use them to reference past facts or sav
 #### Per model personality
 In the models menu in the admin panel, you can put a system prompt telling the bot all you want him to be.
 
+### generate_image
+Has to be configured via ui. Follow [this guide](https://docs.openwebui.com/features/chat-conversations/image-generation-and-editing/comfyui/)
+You have to configure image, by exporting your comfy ui workflow. Find an example at [comfyui/workflows/prompt2image_zimageturbo_api.json](comfyui/workflows/prompt2image_zimageturbo_api.json).
+I put the following settings, following the example comfyui workflow from above:
+image generation: on
+model: z_image_turbo_bf16.safetensors
+image size: 1024x1024
+steps: 8
+image prompt generation: on  # to use an llm for prompt refinement
+image generation engine: comfyui
+comfyui base url: http://host.docker.internal:8188. # it runs locally on host. Click on refresh icon next to it to verify connection. If it works well you should see the job run history at http://localhost:8188/history and reach an example generated image at http://localhost:8188/view?filename=<name>.png&type=output
+comfyui workflow: upload the api workflow file
+text: 57:57. # format is subgraph:node_id. If multiple nodes use that value, use comma separated list
+unet_name: 57:28. # had to rename the field, by default was called checkpoint_name
+width: 57:13
+height: 57:13
+steps: 57:3
+seed: 57:3
+
+#### Bug: Nonetype has no attribue lower
+Model was generating images, visible in comfyui, but fetching them to open webui was failing with error:
+{
+  "error": "400: [ERROR: 'NoneType' object has no attribute 'lower']"
+}
+This is due to a bug on open webui 0.9.5 where urls for downloading generated images are validated to protect against Server Side Request Forgery. In general, a good idea, since it protects your computer's internal url's from being accessed by external users through the llm via tool calling. But for image search it makes no sense since the tool is safe. That validation only happens if this variable is set to False (default) so this is to turn it off, otherwise generate image tool won't be able to download the generated image. Looking at the error source in /app/backend/open_webui/retrieval/web/utils.py:validate_url(), workaround is by setting the ENABLE_RAG_LOCAL_WEB_FETCH env var to true
+
 ## Openclaw
 Used separately from open webui, different use case, just bundled together. Openclaw is essencialy single-tenant, due to its memory mechanism.
 Openclaw can be fully configured in the provided openclaw.json file, that should be mounted on the container.

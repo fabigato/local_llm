@@ -28,6 +28,12 @@ services:
       # 3. CRITICAL: Forces Open WebUI to read docker-compose environment variables 
       # over database overrides if you update them in the future.
       - ENABLE_PERSISTENT_CONFIG=False
+      # on open webui 0.9.5 seems to be a bug where urls for downloading generated images are validated to protect against 
+      # Server Side Request Forgery. In general, a good idea, since it protects your computer's internal url's from being accessed by external
+      # users through the llm via tool calling. But for image search it makes no sense since the tool is safe. That validation only happens if
+      # this variable is set to False (default) so this is to turn it off, otherwise generate image tool won't be able to download the
+      # generated image
+      - ENABLE_RAG_LOCAL_WEB_FETCH=true
 
     volumes:
       - open-webui:/app/backend/data
