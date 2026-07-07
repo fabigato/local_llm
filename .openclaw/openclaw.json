@@ -106,7 +106,7 @@
         "enabled": true,
         "config": {
           "mode": "local",
-          "baseUrl": "http://host.docker.internal:8188",
+          "baseUrl": "${OPENCLAW_COMFY_BASE_URL}",
           "image": {
             "workflowPath": "/home/node/.openclaw/workflows/prompt2image_zimageturbo_api.json",
             "promptNodeId": "57:27",
@@ -248,7 +248,7 @@
   },
   "meta": {
     "lastTouchedVersion": "2026.5.28",
-    "lastTouchedAt": "2026-07-06T23:55:17.495Z"
+    "lastTouchedAt": "2026-07-07T21:58:07.796Z"
   },
   "commands": {
     "ownerAllowFrom": [

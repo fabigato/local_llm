@@ -91,6 +91,7 @@ services:
       TELEGRAM_OWNER: telegram:${OPENCLAW_TELEGRAM_USER_ID}
       TELEGRAM_BOT_TOKEN: ${OPENCLAW_TELEGRAM_BOT_TOKEN}
       OPENCLAW_HOST_LAN_IP: ${OPENCLAW_HOST_LAN_IP}
+      OPENCLAW_COMFY_BASE_URL: ${OPENCLAW_COMFY_BASE_URL}
 
       # Tell OpenClaw to look inside our baked-in system directory for extensions
       OPENCLAW_PLUGINS_PATH: /usr/share/openclaw/extensions

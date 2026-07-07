@@ -109,6 +109,37 @@ Manage Ollama API connections, add
 URL: http://host.docker.internal:11434
 Auth: None
 
+### ComfyUI image generation (and the SSRF "Blocked hostname" gotcha)
+ComfyUI runs on the host, so openclaw (in a container) has to reach it across the container/host boundary. The comfy plugin is configured under `plugins.entries.comfy.config` in openclaw.json with a `baseUrl` and `mode: local`.
+
+The catch: openclaw guards outbound fetches against SSRF (Server Side Request Forgery). When it hits ComfyUI you'll see this in the logs and image generation fails:
+```
+[security] blocked URL fetch (comfy-image-generate) targetOrigin=http://host.docker.internal:8188 reason=Blocked hostname or private/internal/special-use IP address
+[image-generation] candidate failed: comfy/workflow: Blocked hostname or private/internal/special-use IP address
+```
+Setting `mode: local` is supposed to allow reaching a private-network host (it sets `allowPrivateNetwork`), but there's a subtlety: openclaw only actually lifts the block when the `baseUrl` host is a **literal private/loopback IP** (like `192.168.x.x`, `10.x.x.x`, `172.16-31.x.x`, `127.x.x.x`). A **hostname** such as `host.docker.internal` does not pass that check, so it stays blocked even though it resolves to a private IP. (This is why `host.docker.internal` still works fine for ollama above but not for comfy — ollama's provider isn't behind the same SSRF fetch guard.)
+
+Fix: point comfy's `baseUrl` at the host's literal gateway IP instead of the hostname. This repo wires it through an env var so it stays out of git and is easy to change per platform:
+- `.env`: `OPENCLAW_COMFY_BASE_URL=http://192.168.65.254:8188`
+- `docker-compose.yml`: pass it into the container under openclaw's `environment` (`OPENCLAW_COMFY_BASE_URL: ${OPENCLAW_COMFY_BASE_URL}`)
+- `openclaw.json`: `"baseUrl": "${OPENCLAW_COMFY_BASE_URL}"`
+
+**On macOS (Docker Desktop):** use `192.168.65.254`, Docker Desktop's fixed host-gateway IP.
+
+**On Linux:** that IP won't exist. The container reaches the host over the docker bridge gateway, usually `172.17.0.1` (default `docker0` bridge) — so use `http://172.17.0.1:8188`. Confirm the exact value with:
+```
+# from the host
+docker exec openclaw getent hosts host.docker.internal
+# or inspect /etc/hosts inside the container for the host.docker.internal IPv4 entry
+docker exec openclaw cat /etc/hosts
+```
+Whatever IPv4 `host.docker.internal` maps to there is what to put in `OPENCLAW_COMFY_BASE_URL`. Also make sure ComfyUI is actually listening on that interface (start it with `--listen 0.0.0.0`), and that the host firewall allows the container subnet to reach port 8188.
+
+After changing the env var, recreate the container so it picks it up:
+```
+docker compose up -d --force-recreate openclaw
+```
+
 ### Hide openclaw models from users
 You can't group them all under openclaw. Whether a model comes from ollama directly or openclaw, it's still just one model in the list. Permissions per model should be managed separately, using RBAC, so you can manually mark each openclaw model as private, only for some users and the rest as public or assign access to a group
 
