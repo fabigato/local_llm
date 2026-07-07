@@ -6,7 +6,11 @@
         "primary": "ollama/charaf/Huihui-Qwen3.6-35B-A3B-abliterated-mlx:instruct"
       },
       "models": {
-        "ollama/charaf/Huihui-Qwen3.6-35B-A3B-abliterated-mlx:instruct": {}
+        "ollama/charaf/Huihui-Qwen3.6-35B-A3B-abliterated-mlx:instruct": {},
+        "imageGenerationModel": {}
+      },
+      "imageGenerationModel": {
+        "primary": "comfy/workflow"
       }
     }
   },
@@ -65,7 +69,8 @@
   },
   "plugins": {
     "allow": [
-      "hindsight-openclaw"
+      "hindsight-openclaw",
+      "comfy"
     ],
     "slots": {
       "memory": "hindsight-openclaw"
@@ -94,6 +99,18 @@
           "webSearch": {
             "region": "nl-nl",
             "safeSearch": "off"
+          }
+        }
+      },
+      "comfy": {
+        "enabled": true,
+        "config": {
+          "mode": "local",
+          "baseUrl": "http://host.docker.internal:8188",
+          "image": {
+            "workflowPath": "/home/node/.openclaw/workflows/prompt2image_zimageturbo_api.json",
+            "promptNodeId": "57:27",
+            "outputNodeId": "9"
           }
         }
       }
@@ -231,7 +248,7 @@
   },
   "meta": {
     "lastTouchedVersion": "2026.5.28",
-    "lastTouchedAt": "2026-07-05T19:26:57.559Z"
+    "lastTouchedAt": "2026-07-06T23:55:17.495Z"
   },
   "commands": {
     "ownerAllowFrom": [
