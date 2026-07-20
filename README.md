@@ -82,7 +82,7 @@ I put the following settings, following the example comfyui workflow from above:
 | image generation engine | comfyui | |
 | comfyui base url | http://host.docker.internal:8188 | it runs locally on host. Click on refresh icon next to it to verify connection. If it works well you should see the job run history at http://localhost:8188/history and reach an example generated image at http://localhost:8188/view?filename=&lt;name&gt;.png&type=output |
 | comfyui workflow | upload the api workflow file | |
-| text | 57:57 | format is subgraph:node_id. If multiple nodes use that value, use comma separated list |
+| text | 57:27 | format is subgraph:node_id. If multiple nodes use that value, use comma separated list |
 | unet_name | 57:28 | had to rename the field, by default was called checkpoint_name |
 | width | 57:13 | |
 | height | 57:13 | |
