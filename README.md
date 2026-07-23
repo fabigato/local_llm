@@ -89,6 +89,22 @@ I put the following settings, following the example comfyui workflow from above:
 | steps | 57:3 | |
 | seed | 57:3 | |
 
+For image to image (a.k.a. image edit) these are the settings, referencing [comfyui/qwen_edit_uncensored_image2image.json](comfyui/qwen_edit_uncensored_image2image.json)
+| Setting | Value | Notes |
+| --- | --- | --- |
+| image generation | on | |
+| model | Qwen-Rapid-AIO-v2.safetensors | |
+| image size | 1080x1920 | |
+| image edit engine | comfyui | |
+| ComfyUI Base URL | http://host.docker.internal:8188 | it runs locally on host. Click on refresh icon next to it to verify connection. If it works well you should see the job run history at http://localhost:8188/history and reach an example generated image at http://localhost:8188/view?filename=&lt;name&gt;.png&type=output |
+| comfyui workflow | upload the api workflow file | Watch out while exporting the flow: the precense of the anywhere node led to comfyUI not exporting, without reporting any error, just silently ignoring the export. I replaced it by direct node connections and then export api worked|
+| image | 123 | format is subgraph:node_id. If multiple nodes use that value, use comma separated list |
+| prompt | 132 | had to rename the field, by default was called checkpoint_name |
+| unet_name | 125 | |
+| width | 148 | |
+| height | 148 | |
+
+
 #### Bug: Nonetype has no attribue lower
 Model was generating images, visible in comfyui, but fetching them to open webui was failing with error:
 {
