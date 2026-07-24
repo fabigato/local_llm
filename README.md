@@ -168,3 +168,16 @@ Advanced episodic memory engine, with knowledge graph. This service provides a m
 
 # Secret management
 put your secrets in a local .env file on the project root. An .env.example file is provided as guide. Whatever you put in there will be inyected on docker compose
+
+# ComfyUI
+Not part of this repo, but openclaw calls it for image generation/editing. Expected to run on port `8188` (see the SSRF note above for reaching it from the container).
+
+Images live in ComfyUI's own dirs, relative to its install path: uploads/inputs in `input/`, results in `output/`.
+
+Two workflow files, nearly identical:
+- [comfyui/api/qwen_edit_uncensored_image2image_api.json](comfyui/api/qwen_edit_uncensored_image2image_api.json) — image edit only.
+- [comfyui/api/qwen_edit_uncensored_image2image_prompt2image_api.json](comfyui/api/qwen_edit_uncensored_image2image_prompt2image_api.json) — same graph, but its `LoadImage` node defaults to `blank.png`, so it also does text-to-image when no image is attached (one workflow for both generate and edit).
+
+The only diff is that default image. For the hybrid to work, copy [misc/blank.png](misc/blank.png) into ComfyUI's `input/` folder.
+
+Where the workflow JSON goes: for openclaw, copy it into the openclaw workflows folder (`.openclaw/workflows/`); for open-webui, upload it via the UI.

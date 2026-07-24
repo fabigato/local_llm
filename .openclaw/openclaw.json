@@ -108,9 +108,11 @@
           "mode": "local",
           "baseUrl": "${OPENCLAW_COMFY_BASE_URL}",
           "image": {
-            "workflowPath": "/home/node/.openclaw/workflows/prompt2image_zimageturbo_api.json",
-            "promptNodeId": "57:27",
-            "outputNodeId": "9"
+            "workflowPath": "/home/node/.openclaw/workflows/qwen_edit_uncensored_image2image_prompt2image_api.json",
+            "promptNodeId": "132",
+            "promptInputName": "prompt",
+            "inputImageNodeId": "123",
+            "outputNodeId": "77"
           }
         }
       }
@@ -248,7 +250,7 @@
   },
   "meta": {
     "lastTouchedVersion": "2026.5.28",
-    "lastTouchedAt": "2026-07-07T21:58:07.796Z"
+    "lastTouchedAt": "2026-07-24T16:27:42.953Z"
   },
   "commands": {
     "ownerAllowFrom": [
