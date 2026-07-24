@@ -89,7 +89,7 @@ I put the following settings, following the example comfyui workflow from above:
 | steps | 57:3 | |
 | seed | 57:3 | |
 
-For image to image (a.k.a. image edit) these are the settings, referencing [comfyui/qwen_edit_uncensored_image2image.json](comfyui/qwen_edit_uncensored_image2image.json)
+For image to image (a.k.a. image edit) these are the settings, referencing [comfyui/api/qwen_edit_uncensored_image2image.json](comfyui/api/qwen_edit_uncensored_image2image_api.json)
 | Setting | Value | Notes |
 | --- | --- | --- |
 | image generation | on | |
