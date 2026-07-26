@@ -11,6 +11,19 @@ An (almost) fully containerized local llm system, relying on a locally installed
 ## nginx
 Reverse proxy to forward incoming traffic to the exposed services. This handles SSL, so https traffic ends here, after nginx, open webui sees only http requests. Encryption is managed by letsencrypt, a certbot docker image is used to request and renew ssl certificates.
 
+### Editing the nginx config (templates)
+The active config isn't edited directly. The files under `nginx/templates/*.template` are rendered into `/etc/nginx/conf.d/*.conf` by the official nginx image's entrypoint, which runs `envsubst` (this is how `${PRIMARY_DOMAIN}` / `${SECONDARY_DOMAIN}` get substituted from the environment). Crucially, **this rendering happens only once, at container startup.**
+
+That means `docker compose exec nginx nginx -s reload` is **not** enough after editing a template: reload only re-reads the already-rendered `.conf` files in `conf.d/`, it does not re-run `envsubst`. To pick up template changes you have to recreate (or restart) the container so the entrypoint renders them again:
+```
+docker compose up -d --force-recreate nginx
+```
+You can verify what actually landed in the live config with:
+```
+docker exec nginx cat /etc/nginx/conf.d/openwebui.conf
+```
+(Example gotcha: adding `client_max_body_size 100M;` to fix a 413 on uploads only takes effect after the recreate — a plain reload leaves the old 1MB default in place. This error was particularly obscure in open webui browser since it only complained about some non well formed json. This happened because nginx send an html error to open webui. To see what was going on you had to go to the broser's developer view on the network tab and reproduce the error, verifying the url was returning a 413 due to content size too large)
+
 ### certbot
 The ssl certificate can be downloaded for the first time with this docker command:
 ````
