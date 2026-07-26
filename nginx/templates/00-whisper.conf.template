@@ -22,9 +22,8 @@
 # Reached publicly at: https://${PRIMARY_DOMAIN}/whisper/v1/audio/transcriptions
 #                  and: https://${SECONDARY_DOMAIN}/whisper/v1/audio/transcriptions
 
-# The "Bearer <token>" map key is longer than nginx's default 64-byte hash
-# bucket, so bump it or nginx fails to boot ("could not build map_hash").
-map_hash_bucket_size 128;
+# (map_hash_bucket_size, which the long "Bearer <token>" keys below need, is set
+# http-globally in nginx.conf — it has to be parsed before any map block.)
 
 # Bearer-token gate, one line per authorized person. Clients send
 # `Authorization: Bearer <token>`, exactly like the OpenAI SDK. The value is the

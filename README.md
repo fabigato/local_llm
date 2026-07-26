@@ -77,7 +77,7 @@ Config wiring (secrets stay out of git via `.env`, injected through docker-compo
 - `.env`: `WHISPER_SERVER_PORT=8901` and `WHISPER_AUTH_TOKEN=...` (generate with `openssl rand -hex 32`)
 - `docker-compose.yml`: both passed into the nginx container's `environment`
 
-**Gotcha — `could not build map_hash`:** the bearer-token `map` key is the whole string `Bearer <token>`. With a 64-char token (`openssl rand -hex 32`) that's ~71 bytes, longer than nginx's default 64-byte `map_hash_bucket_size`, so nginx refuses to boot. That's not about the token length being wrong — it's a hash-table slot size. Fixed with `map_hash_bucket_size 128;` in the whisper template, which lets you keep a full-length token.
+**Gotcha — `could not build map_hash`:** the bearer-token `map` key is the whole string `Bearer <token>`. With a 64-char token (`openssl rand -hex 32`) that's ~71 bytes, longer than nginx's default 64-byte `map_hash_bucket_size`, so nginx refuses to boot. That's not about the token length being wrong — it's a hash-table slot size. Fixed with `map_hash_bucket_size 128;` in the `http {}` block of [nginx/nginx.conf](nginx/nginx.conf) — it's http-global and shared by the whisper and ollama token maps, and it has to be parsed before any `map` block (nginx reads it while building the map's hash), which is why it lives in the root config, ahead of the `include`, rather than in a per-service template.
 
 Remember template edits need a recreate, not a reload (see the templates note above):
 ```
@@ -109,6 +109,31 @@ To add a person:
 To **revoke** someone, delete their `map` line (and their env var) and recreate. Two things to keep in mind: every *uncommented* `map` line must reference a real env var, or envsubst leaves the literal `${...}` in the config; and each token still has to fit `map_hash_bucket_size` (already bumped to 128, so full-length tokens are fine).
 
 This is deliberately coarse-grained sharing, not real user management: there's no token expiry, no scopes, and the rate limit is per-IP, not per-token. For a handful of trusted people it's plenty; if you outgrow it, put an auth proxy (e.g. oauth2-proxy) or Whisper-side auth in front instead.
+
+### Exposing the Ollama API safely
+Same recipe as whisper, applied to ollama — with two ollama-specific twists. Config lives in [nginx/templates/01-ollama.conf.template](nginx/templates/01-ollama.conf.template) (its own `map` → `$ollama_user`, rate-limit zone, and `log_format`) plus a `location /ollama/` in both `:443` server blocks of [openwebui.conf.template](nginx/templates/openwebui.conf.template). Exposed on both domains:
+```
+https://<PRIMARY_DOMAIN>/ollama/     e.g. POST /ollama/api/chat, /ollama/v1/chat/completions
+https://<SECONDARY_DOMAIN>/ollama/
+```
+It reuses the whole whisper security model (per-person bearer tokens → `$ollama_user`, per-IP rate limit, per-user access log at `/var/log/nginx/ollama.log`, TLS). The token/multi-token workflow is identical — swap `WHISPER_` for `OLLAMA_` and see [the multi-token section above](#granting-access-to-other-people-multiple-tokens). Two differences from whisper are worth understanding:
+
+**1. Ollama binds to `127.0.0.1` — and that's deliberately left alone.** Ollama listens on `127.0.0.1:11434` (loopback only). You might expect that exposing it means setting `OLLAMA_HOST=0.0.0.0` — **don't.** The containers (open-webui, openclaw, hindsight) already reach it via `host.docker.internal`, which Docker Desktop forwards to the host loopback, and nginx reaches it the same way. Keeping it on loopback means nginx (with its token) is the *only* public door and the raw `11434` port is never exposed on a public interface. This also means exposing ollama through nginx is purely additive: the internal containers keep their existing direct `host.docker.internal:11434` path, untouched — they don't go through nginx or need a token.
+
+**2. Inference-only: model-management endpoints are blocked.** Unlike whisper's single endpoint, ollama's API includes destructive/management routes (`/api/pull`, `/api/delete`, `/api/create`, `/api/push`, `/api/copy`, `/api/blobs`). A bearer token gates the front door, but to stop a *leaked* token from wiping or bloating your model library, the `location` returns `403` for those paths even with a valid token — inference and read endpoints (`/api/chat`, `/api/generate`, `/api/embed`, `/api/tags`, `/api/show`, `/v1/*`) pass through.
+
+**Gotcha — ollama returns `403` for everything:** ollama validates the `Host` header (DNS-rebinding protection) and rejects any non-local value. Since nginx would otherwise forward `Host: <your public domain>`, every proxied request comes back `403`. The location fixes this by overriding `proxy_set_header Host "127.0.0.1:11434";` so ollama trusts the request. (Whisper doesn't do this — it doesn't check `Host`.) Also note `proxy_buffering off;` in the location, so streamed tokens flush to the client instead of being buffered.
+
+Test it:
+```
+# inference — 200:
+curl -sk https://<DOMAIN>/ollama/api/version -H "Authorization: Bearer <token>"
+curl -sk https://<DOMAIN>/ollama/api/generate -H "Authorization: Bearer <token>" \
+  -d '{"model":"<model>","prompt":"say hi"}'
+# no/bad token — 401; management endpoint even with a valid token — 403:
+curl -sk https://<DOMAIN>/ollama/api/version
+curl -sk -X POST https://<DOMAIN>/ollama/api/pull -H "Authorization: Bearer <token>"
+```
 
 ## Open WebUI
 Interface managing multi tenancy, login, chat history and agentic tooling

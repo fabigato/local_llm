@@ -1,0 +1,36 @@
+# Ollama API — safe internet exposure (same recipe as 00-whisper.conf.template).
+#
+# Ollama runs on the HOST, bound to 127.0.0.1:11434 (loopback only). That binding
+# is intentional and should stay: the containers (open-webui, openclaw, hindsight)
+# reach it directly over host.docker.internal, and Docker Desktop forwards that to
+# the host loopback — so nginx is the ONLY public door, and the raw port is never
+# exposed on a public interface. Do NOT set OLLAMA_HOST=0.0.0.0 to make this work.
+#
+# NOTE ON THE "01-" FILENAME PREFIX: like 00-whisper, this loads before
+# openwebui.conf (alphabetical `include conf.d/*.conf`) so `log_format ollama`
+# below is parsed before the `access_log ... ollama` that uses it.
+# (map_hash_bucket_size, which the long "Bearer <token>" keys need, is set
+# http-globally in nginx.conf.)
+#
+# Reached publicly at: https://${PRIMARY_DOMAIN}/ollama/  (and ${SECONDARY_DOMAIN})
+
+# Bearer-token gate, one line per authorized person (see the whisper file for the
+# full rationale). Value is the person's name; "" = unauthorized. Separate from
+# whisper's map so the two services have independent access lists and logs.
+map $http_authorization $ollama_user {
+    default                                 "";        # unauthorized
+
+    "Bearer ${OLLAMA_AUTH_TOKEN}"           "owner";
+
+    # Add more people like this (uncomment, add matching env var + .env value):
+    #"Bearer ${OLLAMA_AUTH_TOKEN_ALICE}"     "alice";
+    #"Bearer ${OLLAMA_AUTH_TOKEN_BOB}"       "bob";
+}
+
+# Per-request access log recording which person's token was used.
+log_format ollama '$remote_addr user=$ollama_user [$time_local] '
+                  '"$request" $status ${body_bytes_sent}b';
+
+# Per-IP rate limit. Inference is heavy, but a chat client fires several requests
+# in a row, so this is looser than whisper's. Tune to taste.
+limit_req_zone $binary_remote_addr zone=ollama:10m rate=30r/m;

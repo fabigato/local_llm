@@ -70,6 +70,43 @@ server {
         proxy_read_timeout 300;
     }
 
+    # Ollama API (host service on 127.0.0.1:11434, loopback-only — nginx is the
+    # only public door). Auth map, rate-limit zone and log format: 01-ollama.conf.template.
+    location /ollama/ {
+        # Require a valid bearer token; $ollama_user is the caller's name.
+        if ($ollama_user = "") {
+            return 401;
+        }
+        # Block model-management endpoints even for valid tokens: a leaked token
+        # must not be able to delete or bloat your models. Inference/read only.
+        if ($uri ~* "^/ollama/api/(pull|push|delete|create|copy|blobs)") {
+            return 403;
+        }
+
+        limit_req zone=ollama burst=20 nodelay;
+        access_log /var/log/nginx/ollama.log ollama;
+
+        # Multimodal requests carry base64 images, so allow a generous body.
+        client_max_body_size 100M;
+
+        # Strip the /ollama/ prefix so ollama sees /api/... and /v1/... unchanged.
+        proxy_pass http://host.docker.internal:11434/;
+
+        proxy_http_version 1.1;
+        # Ollama validates the Host header (DNS-rebinding guard) and rejects any
+        # non-local value with 403. Present a local Host rather than the public
+        # domain, so it trusts the proxied request.
+        proxy_set_header Host "127.0.0.1:11434";
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Ollama streams tokens; disable buffering so they flush to the client,
+        # and allow long generations without nginx timing out.
+        proxy_buffering off;
+        proxy_read_timeout 3600;
+    }
+
     location / {
         proxy_pass http://open-webui:8080;
 
@@ -130,6 +167,43 @@ server {
 
         # Transcription can be slow; give it room but don't hang forever.
         proxy_read_timeout 300;
+    }
+
+    # Ollama API (host service on 127.0.0.1:11434, loopback-only — nginx is the
+    # only public door). Auth map, rate-limit zone and log format: 01-ollama.conf.template.
+    location /ollama/ {
+        # Require a valid bearer token; $ollama_user is the caller's name.
+        if ($ollama_user = "") {
+            return 401;
+        }
+        # Block model-management endpoints even for valid tokens: a leaked token
+        # must not be able to delete or bloat your models. Inference/read only.
+        if ($uri ~* "^/ollama/api/(pull|push|delete|create|copy|blobs)") {
+            return 403;
+        }
+
+        limit_req zone=ollama burst=20 nodelay;
+        access_log /var/log/nginx/ollama.log ollama;
+
+        # Multimodal requests carry base64 images, so allow a generous body.
+        client_max_body_size 100M;
+
+        # Strip the /ollama/ prefix so ollama sees /api/... and /v1/... unchanged.
+        proxy_pass http://host.docker.internal:11434/;
+
+        proxy_http_version 1.1;
+        # Ollama validates the Host header (DNS-rebinding guard) and rejects any
+        # non-local value with 403. Present a local Host rather than the public
+        # domain, so it trusts the proxied request.
+        proxy_set_header Host "127.0.0.1:11434";
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Ollama streams tokens; disable buffering so they flush to the client,
+        # and allow long generations without nginx timing out.
+        proxy_buffering off;
+        proxy_read_timeout 3600;
     }
 
     location / {
