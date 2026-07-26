@@ -1,0 +1,54 @@
+# Whisper transcription API — safe internet exposure.
+#
+# NOTE ON THE "00-" FILENAME PREFIX: nginx.conf does `include conf.d/*.conf`,
+# which loads files in alphabetical order. The `log_format whisper` defined below
+# MUST be parsed before the `access_log ... whisper` that references it in
+# openwebui.conf. The 00- prefix forces this file to load first. Don't rename it
+# without moving log_format somewhere parsed earlier, or nginx fails to boot with
+# "unknown log format whisper". (map/limit_req_zone here tolerate forward refs, so
+# only log_format actually needs the ordering.)
+#
+# Whisper runs on the HOST (like ollama/comfyui) at :${WHISPER_SERVER_PORT} with
+# an OpenAI-style /v1/audio/transcriptions endpoint and NO auth of its own. nginx
+# adds the whole security layer: TLS (reused from the primary cert), a bearer
+# token, per-IP rate limiting, method/path lockdown, and a bounded upload size.
+#
+# The actual `location /whisper/` lives inside the PRIMARY_DOMAIN and
+# SECONDARY_DOMAIN :443 server blocks in openwebui.conf.template (nginx can't add
+# a location to an existing server_name from a separate server block). This file
+# only holds the http-context directives those locations depend on — defined once
+# here, shared by both domains.
+#
+# Reached publicly at: https://${PRIMARY_DOMAIN}/whisper/v1/audio/transcriptions
+#                  and: https://${SECONDARY_DOMAIN}/whisper/v1/audio/transcriptions
+
+# The "Bearer <token>" map key is longer than nginx's default 64-byte hash
+# bucket, so bump it or nginx fails to boot ("could not build map_hash").
+map_hash_bucket_size 128;
+
+# Bearer-token gate, one line per authorized person. Clients send
+# `Authorization: Bearer <token>`, exactly like the OpenAI SDK. The value is the
+# person's name (empty string = unauthorized), so logs show WHO called and you can
+# revoke a single person by deleting their line and recreating nginx.
+#
+# Each token is its own env var: set it in .env (openssl rand -hex 32) and wire it
+# into the nginx container in docker-compose.yml. Uncommented lines MUST reference
+# a defined env var, or envsubst leaves the literal ${...} text in the config.
+map $http_authorization $whisper_user {
+    default                                 "";        # unauthorized
+
+    "Bearer ${WHISPER_AUTH_TOKEN}"          "owner";
+
+    # Add more people like this (uncomment, add matching env var + .env value):
+    #"Bearer ${WHISPER_AUTH_TOKEN_ALICE}"    "alice";
+    #"Bearer ${WHISPER_AUTH_TOKEN_BOB}"      "bob";
+}
+
+# Access log that records which person's token was used (see access_log in the
+# whisper locations). $whisper_user is empty for rejected requests.
+log_format whisper '$remote_addr user=$whisper_user [$time_local] '
+                   '"$request" $status ${body_bytes_sent}b';
+
+# Per-IP rate limit. 10 requests/min sustained, small burst allowed. Transcription
+# is expensive, so keep this tight and raise only if you hit legitimate 503s.
+limit_req_zone $binary_remote_addr zone=whisper:10m rate=10r/m;

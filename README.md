@@ -51,6 +51,65 @@ To make sure nginx restarts upon certificate renewal, the script nginx/certbot/c
 ### The initial http only trick
 nginx open webui config is such that http just forwards to https, so when you run the initial request to letsencrypt for a certificate, you get locked in a chicken egg problem, since you need to prove your control of the server to letsencrypt by putting their challenge in a location they can access. But if only https is serving external requests, nobody can access your https server to verify you placed the challenge file there. To this end, the nginx/templates.httponly/openwebui_httponly.conf.template is provided, to setup an initial, temporary http only server so you can download and place the challenge file. Then you can switch to the proper http -> https config.
 
+### Exposing the Whisper transcription API safely
+A Whisper speech-to-text server runs on the **host** (like ollama and ComfyUI), on the port set by `WHISPER_SERVER_PORT`. It offers an OpenAI-style `POST /v1/audio/transcriptions` endpoint **with no auth of its own**, so exposing it raw would let anyone on the internet burn your compute, DoS you, or upload huge files. nginx adds the entire security layer on top of it.
+
+It's exposed **path-based** on both the primary and secondary domains (no new DNS record or certificate needed):
+```
+https://<PRIMARY_DOMAIN>/whisper/v1/audio/transcriptions
+https://<SECONDARY_DOMAIN>/whisper/v1/audio/transcriptions
+```
+The reverse-proxy config lives in two files:
+- [nginx/templates/00-whisper.conf.template](nginx/templates/00-whisper.conf.template) — the http-context bits: the bearer-token `map`, the per-IP rate-limit zone, and the access-log format. These are global, so they're defined once and shared by both domains. **The `00-` prefix is load-bearing:** `include conf.d/*.conf` loads files alphabetically, and the `log_format` here must be parsed before the `access_log` that references it in `openwebui.conf` — the prefix forces this file first. Renaming it (without moving `log_format` earlier) makes nginx fail to boot with `unknown log format whisper`. (The `map`/`limit_req_zone` tolerate forward references, so only `log_format` actually needs the ordering.)
+- [nginx/templates/openwebui.conf.template](nginx/templates/openwebui.conf.template) — the actual `location /whisper/`, duplicated inside both the `${PRIMARY_DOMAIN}` and `${SECONDARY_DOMAIN}` `:443` server blocks. (nginx can't add a location to an existing `server_name` from a separate `server` block, so it can't live entirely in its own file — it's a second `location` in each server, next to open webui's `location /`.)
+
+What the location enforces, in request order:
+1. **TLS** — reuses the per-domain cert; no separate cert for this.
+2. **Bearer token** — requests whose `Authorization: Bearer <token>` isn't a known token get `401` before nginx ever touches Whisper. Clients send it exactly like the OpenAI SDK does. Tokens are defined in the `map` (see [multi-token access](#granting-access-to-other-people-multiple-tokens) below).
+3. **Method lock** — only `POST`; anything else gets `405`.
+4. **Rate limit** — 10 req/min per IP, burst 5.
+5. **Body cap** — 50M on this location (overrides the 100M default; OpenAI's own cap is 25MB).
+6. **Prefix strip** — `proxy_pass ...:${WHISPER_SERVER_PORT}/` turns `/whisper/v1/audio/transcriptions` into `/v1/audio/transcriptions` for Whisper. Whisper is reached over `host.docker.internal`, which required adding `extra_hosts: host.docker.internal:host-gateway` to the nginx service in docker-compose (it wasn't there before, unlike open-webui/openclaw).
+
+Each accepted request is written to `/var/log/nginx/whisper.log` with `user=<name>` (from the map, see below), so you can see who called: `docker exec nginx cat /var/log/nginx/whisper.log`.
+
+Config wiring (secrets stay out of git via `.env`, injected through docker-compose into the templates via envsubst):
+- `.env`: `WHISPER_SERVER_PORT=8901` and `WHISPER_AUTH_TOKEN=...` (generate with `openssl rand -hex 32`)
+- `docker-compose.yml`: both passed into the nginx container's `environment`
+
+**Gotcha — `could not build map_hash`:** the bearer-token `map` key is the whole string `Bearer <token>`. With a 64-char token (`openssl rand -hex 32`) that's ~71 bytes, longer than nginx's default 64-byte `map_hash_bucket_size`, so nginx refuses to boot. That's not about the token length being wrong — it's a hash-table slot size. Fixed with `map_hash_bucket_size 128;` in the whisper template, which lets you keep a full-length token.
+
+Remember template edits need a recreate, not a reload (see the templates note above):
+```
+docker compose up -d --force-recreate nginx
+docker exec nginx nginx -t
+```
+Test it (first succeeds, second is `401`, third is `405`):
+```
+curl -X POST https://<PRIMARY_DOMAIN>/whisper/v1/audio/transcriptions \
+  -H "Authorization: Bearer <token>" -F file=@sample.wav -F model=whisper-1
+curl -X POST https://<PRIMARY_DOMAIN>/whisper/v1/audio/transcriptions -F file=@sample.wav
+curl https://<PRIMARY_DOMAIN>/whisper/v1/audio/transcriptions -H "Authorization: Bearer <token>"
+```
+One caveat: nginx only secures the *internet-facing* path. Whisper itself still listens on the host, so make sure your host firewall doesn't also expose `WHISPER_SERVER_PORT` directly (or bind Whisper to `127.0.0.1`), otherwise the auth gets bypassed.
+
+#### Granting access to other people (multiple tokens)
+The bearer-token check is an nginx `map` in [nginx/templates/00-whisper.conf.template](nginx/templates/00-whisper.conf.template) that maps each valid `Bearer <token>` string to a **person's name**, defaulting to an empty string (= unauthorized). The `location` rejects the request when `$whisper_user` is empty. Mapping to a name rather than a plain yes/no gives you two things: the access log records *who* called, and you can revoke one person without disturbing the others.
+
+To add a person:
+1. Generate them a token: `openssl rand -hex 32`.
+2. Add it as its own env var in `.env`, e.g. `WHISPER_AUTH_TOKEN_ALICE=...`.
+3. Pass that var into the nginx container: uncomment the matching line under nginx's `environment` in `docker-compose.yml`.
+4. Uncomment (and rename) the matching line in the `map` in `00-whisper.conf.template`:
+   ```nginx
+   "Bearer ${WHISPER_AUTH_TOKEN_ALICE}"    "alice";
+   ```
+5. Recreate nginx: `docker compose up -d --force-recreate nginx`.
+
+To **revoke** someone, delete their `map` line (and their env var) and recreate. Two things to keep in mind: every *uncommented* `map` line must reference a real env var, or envsubst leaves the literal `${...}` in the config; and each token still has to fit `map_hash_bucket_size` (already bumped to 128, so full-length tokens are fine).
+
+This is deliberately coarse-grained sharing, not real user management: there's no token expiry, no scopes, and the rate limit is per-IP, not per-token. For a handful of trusted people it's plenty; if you outgrow it, put an auth proxy (e.g. oauth2-proxy) or Whisper-side auth in front instead.
+
 ## Open WebUI
 Interface managing multi tenancy, login, chat history and agentic tooling
 

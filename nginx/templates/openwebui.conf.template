@@ -37,6 +37,39 @@ server {
 
     client_max_body_size 100M;
 
+    # Whisper transcription API (host service on :${WHISPER_SERVER_PORT}).
+    # Auth map + rate-limit zone are defined in 00-whisper.conf.template.
+    location /whisper/ {
+        # Require a valid bearer token; reject everything else before proxying.
+        # $whisper_user is the caller's name (empty = unknown token). Map + log
+        # format live in 00-whisper.conf.template.
+        if ($whisper_user = "") {
+            return 401;
+        }
+        access_log /var/log/nginx/whisper.log whisper;
+        # Only POST reaches whisper — the transcription endpoint is POST-only.
+        if ($request_method !~ ^(POST)$) {
+            return 405;
+        }
+
+        limit_req zone=whisper burst=5 nodelay;
+
+        # Bound uploads (OpenAI's own cap is 25MB; adjust to taste).
+        client_max_body_size 50M;
+
+        # Strip the /whisper/ prefix so whisper sees /v1/audio/transcriptions.
+        proxy_pass http://host.docker.internal:${WHISPER_SERVER_PORT}/;
+
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Transcription can be slow; give it room but don't hang forever.
+        proxy_read_timeout 300;
+    }
+
     location / {
         proxy_pass http://open-webui:8080;
 
@@ -65,6 +98,39 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/${SECONDARY_DOMAIN}/privkey.pem;
 
     client_max_body_size 100M;
+
+    # Whisper transcription API (host service on :${WHISPER_SERVER_PORT}).
+    # Auth map + rate-limit zone are defined in 00-whisper.conf.template.
+    location /whisper/ {
+        # Require a valid bearer token; reject everything else before proxying.
+        # $whisper_user is the caller's name (empty = unknown token). Map + log
+        # format live in 00-whisper.conf.template.
+        if ($whisper_user = "") {
+            return 401;
+        }
+        access_log /var/log/nginx/whisper.log whisper;
+        # Only POST reaches whisper — the transcription endpoint is POST-only.
+        if ($request_method !~ ^(POST)$) {
+            return 405;
+        }
+
+        limit_req zone=whisper burst=5 nodelay;
+
+        # Bound uploads (OpenAI's own cap is 25MB; adjust to taste).
+        client_max_body_size 50M;
+
+        # Strip the /whisper/ prefix so whisper sees /v1/audio/transcriptions.
+        proxy_pass http://host.docker.internal:${WHISPER_SERVER_PORT}/;
+
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Transcription can be slow; give it room but don't hang forever.
+        proxy_read_timeout 300;
+    }
 
     location / {
         proxy_pass http://open-webui:8080;
