@@ -130,6 +130,9 @@ Test it:
 curl -sk https://<DOMAIN>/ollama/api/version -H "Authorization: Bearer <token>"
 curl -sk https://<DOMAIN>/ollama/api/generate -H "Authorization: Bearer <token>" \
   -d '{"model":"<model>","prompt":"say hi"}'
+# chat completions - 200:
+curl -sk https://<DOMAIN>/ollama/v1/chat/completions -H "Authorization: Bearer <token>" \
+  -d '{"model":"huihui_ai/Qwen3.6-abliterated:35b","messages":[{"role": "system", "content": "be helpful"}, {"role": "user", "content": "tell me a joke"}]}'
 # no/bad token — 401; management endpoint even with a valid token — 403:
 curl -sk https://<DOMAIN>/ollama/api/version
 curl -sk -X POST https://<DOMAIN>/ollama/api/pull -H "Authorization: Bearer <token>"
