@@ -147,6 +147,8 @@ That preflight is exactly what broke the Obsidian whisper plugin: the unauthenti
 
 Note this **doesn't weaken security**: CORS was never protecting this API — the bearer token is. CORS only governs which *browser origins* may talk to it, and a stolen token works from `curl` regardless of origin. That's why `Access-Control-Allow-Origin: *` is fine here (and effectively required, since a browser/Electron origin like `app://obsidian.md` is unpredictable). It works with `*` specifically because the token travels in an `Authorization` header, not a cookie — `*` would be rejected by browsers only if the request used `credentials: 'include'` (cookies).
 
+**Gotcha — duplicate CORS headers:** both the whisper server and ollama *also* emit their own `Access-Control-Allow-Origin` on responses. Left alone, the proxied response then carries **two** `Access-Control-Allow-Origin` headers, which browsers reject outright (the spec allows exactly one) — so the request 200s at nginx but the browser still blocks it and the client shows a "network error". The locations therefore `proxy_hide_header` the upstream CORS headers and set a single clean one. If you ever see a browser-only failure on a request that clearly succeeded server-side, check for duplicated `Access-Control-*` headers first.
+
 ## Open WebUI
 Interface managing multi tenancy, login, chat history and agentic tooling
 
