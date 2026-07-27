@@ -138,6 +138,15 @@ curl -sk https://<DOMAIN>/ollama/api/version
 curl -sk -X POST https://<DOMAIN>/ollama/api/pull -H "Authorization: Bearer <token>"
 ```
 
+#### CORS: what it's for and why the `OPTIONS` handling exists
+Both the `/ollama/` and `/whisper/` locations answer `OPTIONS` requests with `204` + `Access-Control-Allow-*` headers *before* the token check. Here's why.
+
+CORS (Cross-Origin Resource Sharing) is a **browser** security mechanism. When JavaScript running on origin A (e.g. a web app, or an Electron app like Obsidian) calls an API on a different origin B, the browser won't let the script send the request — or read the response — unless server B explicitly opts in with `Access-Control-Allow-Origin` headers. For any "non-simple" request (which includes anything carrying an `Authorization: Bearer` header), the browser first sends a **preflight** `OPTIONS` request to B to ask "am I allowed?", and crucially sends it **without** the `Authorization` header. Only if that preflight returns success + the right CORS headers does it send the real request.
+
+That preflight is exactly what broke the Obsidian whisper plugin: the unauthenticated `OPTIONS` hit our token check and got `401`, so the browser aborted with a generic "network error" — even though the credentials were fine. `curl` and other non-browser clients never do this dance, which is why they worked. The fix is to short-circuit `OPTIONS` with a `204` + CORS headers ahead of auth, and to add `Access-Control-Allow-Origin` to the real responses so the browser lets the client read them.
+
+Note this **doesn't weaken security**: CORS was never protecting this API — the bearer token is. CORS only governs which *browser origins* may talk to it, and a stolen token works from `curl` regardless of origin. That's why `Access-Control-Allow-Origin: *` is fine here (and effectively required, since a browser/Electron origin like `app://obsidian.md` is unpredictable). It works with `*` specifically because the token travels in an `Authorization` header, not a cookie — `*` would be rejected by browsers only if the request used `credentials: 'include'` (cookies).
+
 ## Open WebUI
 Interface managing multi tenancy, login, chat history and agentic tooling
 

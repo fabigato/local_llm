@@ -40,6 +40,19 @@ server {
     # Whisper transcription API (host service on :${WHISPER_SERVER_PORT}).
     # Auth map + rate-limit zone are defined in 00-whisper.conf.template.
     location /whisper/ {
+        # CORS preflight: browser/Electron clients (e.g. the Obsidian plugin) send
+        # an unauthenticated OPTIONS before the real POST. Answer it here, BEFORE
+        # the auth check — otherwise it 401s and the client reports "network error".
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin  "*" always;
+            add_header Access-Control-Allow-Methods "POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
+            add_header Access-Control-Max-Age       86400 always;
+            return 204;
+        }
+        # Let the browser read the actual (non-preflight) response.
+        add_header Access-Control-Allow-Origin "*" always;
+
         # Require a valid bearer token; reject everything else before proxying.
         # $whisper_user is the caller's name (empty = unknown token). Map + log
         # format live in 00-whisper.conf.template.
@@ -73,6 +86,18 @@ server {
     # Ollama API (host service on 127.0.0.1:11434, loopback-only — nginx is the
     # only public door). Auth map, rate-limit zone and log format: 01-ollama.conf.template.
     location /ollama/ {
+        # CORS preflight (see the whisper location for why): answer the browser's
+        # unauthenticated OPTIONS before the auth check.
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin  "*" always;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
+            add_header Access-Control-Max-Age       86400 always;
+            return 204;
+        }
+        # Let the browser read the actual (non-preflight) response.
+        add_header Access-Control-Allow-Origin "*" always;
+
         # Require a valid bearer token; $ollama_user is the caller's name.
         if ($ollama_user = "") {
             return 401;
@@ -139,6 +164,19 @@ server {
     # Whisper transcription API (host service on :${WHISPER_SERVER_PORT}).
     # Auth map + rate-limit zone are defined in 00-whisper.conf.template.
     location /whisper/ {
+        # CORS preflight: browser/Electron clients (e.g. the Obsidian plugin) send
+        # an unauthenticated OPTIONS before the real POST. Answer it here, BEFORE
+        # the auth check — otherwise it 401s and the client reports "network error".
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin  "*" always;
+            add_header Access-Control-Allow-Methods "POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
+            add_header Access-Control-Max-Age       86400 always;
+            return 204;
+        }
+        # Let the browser read the actual (non-preflight) response.
+        add_header Access-Control-Allow-Origin "*" always;
+
         # Require a valid bearer token; reject everything else before proxying.
         # $whisper_user is the caller's name (empty = unknown token). Map + log
         # format live in 00-whisper.conf.template.
@@ -172,6 +210,18 @@ server {
     # Ollama API (host service on 127.0.0.1:11434, loopback-only — nginx is the
     # only public door). Auth map, rate-limit zone and log format: 01-ollama.conf.template.
     location /ollama/ {
+        # CORS preflight (see the whisper location for why): answer the browser's
+        # unauthenticated OPTIONS before the auth check.
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin  "*" always;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
+            add_header Access-Control-Max-Age       86400 always;
+            return 204;
+        }
+        # Let the browser read the actual (non-preflight) response.
+        add_header Access-Control-Allow-Origin "*" always;
+
         # Require a valid bearer token; $ollama_user is the caller's name.
         if ($ollama_user = "") {
             return 401;
