@@ -1,0 +1,59 @@
+# Plain-HTTP redirect and catch-all defaults.
+#
+# NOTE ON THE "05-" FILENAME PREFIX: nginx.conf does `include conf.d/*.conf`,
+# which loads files in alphabetical order. This file must come after the
+# 00-/01- service files (which define the log formats) and before the 10-/11-/12-
+# subdomain files, because the `default_server` on each listen address belongs to
+# whichever server block nginx parses first.
+#
+# NOTE ON IPv6: every `listen` below is IPv4-only, and that is correct here even
+# though the domain has AAAA records and serves real IPv6 traffic. Docker
+# publishes 80/443 on both stacks ([::]:443 as well as 0.0.0.0:443) and its proxy
+# forwards IPv6 connections to the container's IPv4 side, so nginx receives them
+# on 0.0.0.0. Adding `listen [::]:443` would bind an address the container network
+# never delivers traffic to. Verified working: chat.${DOMAIN} has served IPv6
+# clients through an IPv4-only listen since before this refactor.
+#
+# The cost of that proxying is that $remote_addr is always the Docker gateway
+# (192.168.65.1), never the real client — see the rate-limit note in
+# 00-whisper.conf.template.
+#
+# There is no /.well-known/acme-challenge/ location here, and that is the point.
+# Certificates are now obtained over DNS-01 (see scripts/certbot-issue.sh), so
+# Let's Encrypt never contacts this machine. nginx plays no part in issuance or
+# renewal, port 80 exists only as a courtesy redirect, and the old
+# templates.httponly/ bootstrap config — which existed solely because nginx
+# couldn't start without a cert it needed nginx to obtain — is gone.
+
+# Anything arriving on :80 for a hostname we serve goes to HTTPS.
+server {
+    listen 80;
+    server_name ${DOMAIN} *.${DOMAIN};
+
+    return 301 https://$host$request_uri;
+}
+
+# Catch-all for :80. Requests for hostnames we don't serve (scanners hitting the
+# bare IP, stale DNS, someone else's domain pointed here) get the connection
+# dropped rather than a redirect to a host that will also reject them.
+server {
+    listen 80 default_server;
+    server_name _;
+
+    return 444;
+}
+
+# Catch-all for :443. A wildcard certificate means EVERY subdomain now presents a
+# valid cert and completes the TLS handshake, so without this block an unclaimed
+# name like foo.${DOMAIN} would silently fall through to the first :443 server —
+# serving Open WebUI on a hostname you never configured. Drop it instead.
+#
+# The handshake still needs a certificate to reject the request after it; the
+# wildcard inherited from nginx.conf covers that.
+server {
+    listen 443 ssl default_server;
+    http2 on;
+    server_name _;
+
+    return 444;
+}

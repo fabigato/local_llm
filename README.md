@@ -11,8 +11,31 @@ An (almost) fully containerized local llm system, relying on a locally installed
 ## nginx
 Reverse proxy to forward incoming traffic to the exposed services. This handles SSL, so https traffic ends here, after nginx, open webui sees only http requests. Encryption is managed by letsencrypt, a certbot docker image is used to request and renew ssl certificates.
 
+**One wildcard certificate, one subdomain per service.** A single cert covers `${DOMAIN}` and `*.${DOMAIN}`, so every service gets its own hostname instead of sharing one behind a path prefix:
+
+| URL | Service |
+| --- | --- |
+| `https://chat.${DOMAIN}` | Open WebUI |
+| `https://whisper.${DOMAIN}` | whisper transcription API |
+| `https://llm.${DOMAIN}` | ollama API |
+
+Because the cert already covers any subdomain, **adding a service needs no certificate work at all** — write a template, add a DNS record, recreate nginx. `ssl_certificate` is therefore declared once at `http` level in [nginx/nginx.conf](nginx/nginx.conf) and inherited by every server block, rather than repeated per server.
+
 ### Editing the nginx config (templates)
-The active config isn't edited directly. The files under `nginx/templates/*.template` are rendered into `/etc/nginx/conf.d/*.conf` by the official nginx image's entrypoint, which runs `envsubst` (this is how `${PRIMARY_DOMAIN}` / `${SECONDARY_DOMAIN}` get substituted from the environment). Crucially, **this rendering happens only once, at container startup.**
+The active config isn't edited directly. The files under `nginx/templates/*.template` are rendered into `/etc/nginx/conf.d/*.conf` by the official nginx image's entrypoint, which runs `envsubst` (this is how `${DOMAIN}` gets substituted from the environment). Crucially, **this rendering happens only once, at container startup.**
+
+One file per concern, and the numeric prefixes control load order (`include conf.d/*.conf` is alphabetical):
+
+| Template | Contains |
+| --- | --- |
+| `00-whisper.conf.template` | whisper's http-context bits: bearer `map`, `log_format`, rate-limit zone |
+| `01-ollama.conf.template` | the same for ollama |
+| `05-default.conf.template` | `:80` → `:443` redirect, plus `default_server` catch-alls |
+| `10-chat.conf.template` | `chat.${DOMAIN}` → Open WebUI |
+| `11-whisper.conf.template` | `whisper.${DOMAIN}` → whisper |
+| `12-llm.conf.template` | `llm.${DOMAIN}` → ollama |
+
+Note `nginx.conf` itself is **not** a template — it's mounted verbatim, so it can't reference `${DOMAIN}`. That's why the certificate is issued under the fixed name `wildcard` (`certbot --cert-name wildcard`): it gives `nginx.conf` a domain-independent path to point at.
 
 That means `docker compose exec nginx nginx -s reload` is **not** enough after editing a template: reload only re-reads the already-rendered `.conf` files in `conf.d/`, it does not re-run `envsubst`. To pick up template changes you have to recreate (or restart) the container so the entrypoint renders them again:
 ```
@@ -20,56 +43,120 @@ docker compose up -d --force-recreate nginx
 ```
 You can verify what actually landed in the live config with:
 ```
-docker exec nginx cat /etc/nginx/conf.d/openwebui.conf
+docker exec nginx cat /etc/nginx/conf.d/10-chat.conf
 ```
 (Example gotcha: adding `client_max_body_size 100M;` to fix a 413 on uploads only takes effect after the recreate — a plain reload leaves the old 1MB default in place. This error was particularly obscure in open webui browser since it only complained about some non well formed json. This happened because nginx send an html error to open webui. To see what was going on you had to go to the broser's developer view on the network tab and reproduce the error, verifying the url was returning a 413 due to content size too large)
 
-### certbot
-The ssl certificate can be downloaded for the first time with this docker command:
-````
-docker run --rm \
-  -v $(pwd)/nginx/certbot/conf:/etc/letsencrypt \
-  -v $(pwd)/nginx/certbot/www:/var/www/certbot \
-  certbot/certbot certonly \
-  --webroot \
-  -w /var/www/certbot \
-  -d chat.example.com \
-  --agree-tos \
-  --no-eff-email \
-  -m example@email.com \
-  --non-interactive
-````
+### DNS on a dynamic IP (ddclient + CNAMEs)
+This host has no static IP, so `ddclient` keeps the records pointing at it. It runs from `/Library/LaunchDaemons/homebrew.mxcl.ddclient.plist` with `StartInterval 300` and no `-daemon` flag, so it fires every 5 minutes and exits — **seeing no `ddclient` process in `ps` is normal**, not a failure. Config lives at `/opt/homebrew/etc/ddclient/ddclient.conf` (root-owned, mode 600).
 
-To renew the certificate, the following script is provided:
+**ddclient maintains exactly one name: the apex.** Everything else is a CNAME to it:
+
+| Name | Type | Value |
+| --- | --- | --- |
+| `<DOMAIN>` (apex) | A + AAAA | updated by ddclient |
+| `chat` | CNAME | `<DOMAIN>.` |
+| `whisper` | CNAME | `<DOMAIN>.` |
+| `llm` | CNAME | `<DOMAIN>.` |
+
+Why this shape rather than a dynamic A record per service:
+
+- **A CNAME aliases the *name*, not a record type.** It inherits the apex's `A` *and* `AAAA` automatically, so dual-stack works with nothing extra. Per-subdomain records would mean ddclient maintaining `A`+`AAAA` × 4 names = **8 records**, growing by 2 per new service. This way it's **2, permanently.**
+- Fewer records is fewer things that silently drift out of sync, and each new service needs no privileged config edit and no daemon reload — just one CNAME.
+- The apex is a legal CNAME *target*. The rule that trips people up is that the apex can't **be** a CNAME (it must hold SOA/NS, and CNAME can't coexist with other records); pointing other names at it is fine.
+
+A wildcard `*.<DOMAIN>` A record would mirror the wildcard certificate exactly, but most DDNS endpoints won't accept `*` as a hostname, and it would resolve every possible name to this host for no gain over a couple of CNAMEs. (Unclaimed names are dropped by the `:443` catch-all in `05-default.conf.template` regardless.)
+
+Note `https://<DOMAIN>` (the bare apex) itself currently hits that `444` catch-all — the apex is an address anchor, not a served hostname. Give it a server block if you ever want it serving something.
+
+The health check that matters is whether DNS agrees with reality:
 ```
-scripts/certbot-renew.sh
-````
-Then you can create a cron job (or launchd on mac) to run it on a cadence. For instance daily, the certbot container won't actually renew the certificate unless is necessary.
+curl -s https://api.ipify.org; echo            # IPv4
+curl -s -6 https://api6.ipify.org; echo        # IPv6
+dig +short <DOMAIN> A; dig +short <DOMAIN> AAAA
+dig +short whisper.<DOMAIN>                    # should show the CNAME then the apex's addresses
+```
 
-To make sure nginx restarts upon certificate renewal, the script nginx/certbot/conf/renewal-hooks/deploy/reload-nginx.sh is provided as an nginx renewal hook, meaning it will be triggered when nginx reports a certificate renewal, and the script will simply restart the nginx docker container by name.
+### certbot
+Certificates are obtained over the **DNS-01** challenge using Infomaniak's API, not the webroot/HTTP-01 flow this repo used to have. That switch is what makes a wildcard possible: Let's Encrypt will not issue `*.${DOMAIN}` over HTTP-01 at all.
 
-### The initial http only trick
-nginx open webui config is such that http just forwards to https, so when you run the initial request to letsencrypt for a certificate, you get locked in a chicken egg problem, since you need to prove your control of the server to letsencrypt by putting their challenge in a location they can access. But if only https is serving external requests, nobody can access your https server to verify you placed the challenge file there. To this end, the nginx/templates.httponly/openwebui_httponly.conf.template is provided, to setup an initial, temporary http only server so you can download and place the challenge file. Then you can switch to the proper http -> https config.
+Three things follow from it, and they're the real reasons to prefer it:
+
+1. **No inbound port 80 dependency.** Let's Encrypt never contacts this machine. nginx plays no part in issuance or renewal, so you can issue a valid public certificate for a service that isn't publicly reachable at all — LAN-only, Tailscale-only, or bound to loopback.
+2. **Your hostnames stop being published.** Every issued certificate is logged to public Certificate Transparency logs, and scanners mine those logs for fresh homelab hostnames. A per-subdomain cert announces `whisper.${DOMAIN}` to the world; a wildcard announces only `*.${DOMAIN}`.
+3. **New subdomains are free.** No issuance step, no renewal config, no rate-limit exposure.
+
+**Setup (once).** Create an API token at [manager.infomaniak.com](https://manager.infomaniak.com) → Users and profile → My profile → Developer → API tokens → Create token, with the **Domain** and **Domain write** scopes. Then:
+```
+cp nginx/certbot/infomaniak.ini.example nginx/certbot/infomaniak.ini
+# paste the token into it
+chmod 600 nginx/certbot/infomaniak.ini
+```
+> **This token is the most sensitive file in the repo.** A Domain-scoped token can rewrite *any* DNS record on the account, including MX — its blast radius is larger than the certificates it exists to obtain. It's gitignored; keep it at mode 600. If you want to shrink the exposure, CNAME `_acme-challenge.${DOMAIN}` to a throwaway zone so this token has no authority over your real records.
+
+**Issue the certificate.** Do this *before* the first `docker compose up` — `nginx.conf` references the cert at `http` level, so nginx refuses to start without it:
+```
+scripts/certbot-issue.sh --dry-run   # always rehearse first
+scripts/certbot-issue.sh
+```
+It requests `${DOMAIN}` and `*.${DOMAIN}` as **one certificate with two SANs** (not two certificates), under `--cert-name wildcard`, and waits ~120s for the TXT record to propagate. Use `--staging` if you need repeated attempts: failed *production* issuances count against a rate limit, staging ones don't.
+
+There is no `certbot/certbot` image with the Infomaniak plugin (unlike `certbot/dns-cloudflare`), so [nginx/certbot/Dockerfile](nginx/certbot/Dockerfile) adds it in two lines. Both scripts build it automatically.
+
+**Renewal.** `scripts/certbot-renew.sh` renews anything within 30 days of expiry and reloads nginx only if something actually changed.
+
+The thing to understand here: **`certbot renew` is not per-certificate.** It walks every file in `/etc/letsencrypt/renewal/` and renews the ones that are due, each using the authenticator recorded in *its own* renewal config. So one job covers all certificates no matter how many you have, and old HTTP-01 certs and new DNS-01 certs renew correctly in the same run — which is what makes an incremental migration safe.
+
+That's also why the script passes **no authenticator flags**. The old version passed `--webroot -w /var/www/certbot`, which *overrides* the stored authenticator for every cert in the run; leave that in and the wildcard would be forced onto HTTP-01 and fail. Keep the command bare.
+
+**Scheduling it: [scripts/com.certbot.docker.renew.plist](scripts/com.certbot.docker.renew.plist).** This is the launchd job that actually runs the renewal — the macOS equivalent of a cron entry, and the piece that makes renewal automatic rather than something you remember to do. It isn't used from the repo directly; it's a template you install:
+```
+cp scripts/com.certbot.docker.renew.plist ~/Library/LaunchAgents/
+# edit the copy: replace <path-to-script> with the absolute path to scripts/certbot-renew.sh
+launchctl load ~/Library/LaunchAgents/com.certbot.docker.renew.plist
+```
+**Check that it actually runs.** The second column of `launchctl list` is the job's last exit status, and it is the only place a broken job shows up:
+```
+launchctl list | grep certbot     # want 0; 127 means "command not found"
+```
+This bit me for real: the installed copy pointed at `<user home>/scripts/certbot-renew.sh`, a path that doesn't exist, so the job had been exiting **127 on every run** — automatic renewal was silently dead and the old certificates were only surviving on manual runs. An absolute path that's right at install time is not right forever; check the exit status after any move or rename.
+
+Three details in it are load-bearing:
+- `StartInterval 43200` — fires every 12h. Frequent runs are near-free because certbot exits immediately when nothing is within 30 days of expiry, and the redundancy means a couple of missed or failed runs still leave weeks of slack.
+- `EnvironmentVariables > PATH` — launchd jobs get a minimal PATH that does **not** include `/usr/local/bin` or `/opt/homebrew/bin`, so `docker` wouldn't be found. This is the usual reason a launchd job that works by hand fails on a schedule.
+- `StandardOutPath` / `StandardErrorPath` → `/tmp/certbot-renew.{out,err}` — DNS-01 renewal can fail with *no visible symptom for up to 90 days* (a revoked API token, an API change), unlike the old webroot flow where a broken nginx was obvious immediately. These logs, plus `nginx/certbot/logs/letsencrypt.log`, are the only place it surfaces. Worth checking occasionally:
+  ```
+  tail -n 50 /tmp/certbot-renew.err
+  docker exec nginx openssl x509 -enddate -noout -in /etc/letsencrypt/live/wildcard/fullchain.pem
+  ```
+
+**Reloading nginx after renewal** is done by the renew script on the host, not by a certbot deploy hook. There used to be a hook at `nginx/certbot/conf/renewal-hooks/deploy/reload-nginx.sh` running `docker exec nginx nginx -s reload` — but certbot runs deploy hooks *inside the certbot container*, which has no docker binary and no docker socket mounted, so it failed silently on every renewal and nginx kept serving the certificate it had loaded at startup. It's been deleted. The hook now just touches a sentinel file in the shared volume; the host script sees it and does the reload where a docker client actually exists.
+
+### The initial http-only trick (no longer needed)
+Kept as a note because the problem is instructive. With HTTP-01, first issuance was a chicken-and-egg: nginx wouldn't start because `ssl_certificate` pointed at a file that didn't exist, but the certificate needed nginx running to serve the challenge. The workaround was a temporary cert-free `nginx/templates.httponly/` config to bootstrap with.
+
+DNS-01 removes the cycle entirely — certbot proves control through DNS without nginx running — so `templates.httponly/` and `conf.d.httponly/` have been deleted. The ordering requirement that replaces it is simply: **issue the certificate before starting nginx.**
 
 ### Exposing the Whisper transcription API safely
 A Whisper speech-to-text server runs on the **host** (like ollama and ComfyUI), on the port set by `WHISPER_SERVER_PORT`. It offers an OpenAI-style `POST /v1/audio/transcriptions` endpoint **with no auth of its own**, so exposing it raw would let anyone on the internet burn your compute, DoS you, or upload huge files. nginx adds the entire security layer on top of it.
 
-It's exposed **path-based** on both the primary and secondary domains (no new DNS record or certificate needed):
+It's exposed on **its own subdomain**, at the root path (the wildcard cert already covers it, so this needed only a DNS record):
 ```
-https://<PRIMARY_DOMAIN>/whisper/v1/audio/transcriptions
-https://<SECONDARY_DOMAIN>/whisper/v1/audio/transcriptions
+https://whisper.<DOMAIN>/v1/audio/transcriptions
 ```
+> **Breaking change:** this used to be path-based at `https://<domain>/whisper/v1/audio/transcriptions`. Any client configured against the old URL — notably the Obsidian whisper plugin — must be updated.
+
 The reverse-proxy config lives in two files:
-- [nginx/templates/00-whisper.conf.template](nginx/templates/00-whisper.conf.template) — the http-context bits: the bearer-token `map`, the per-IP rate-limit zone, and the access-log format. These are global, so they're defined once and shared by both domains. **The `00-` prefix is load-bearing:** `include conf.d/*.conf` loads files alphabetically, and the `log_format` here must be parsed before the `access_log` that references it in `openwebui.conf` — the prefix forces this file first. Renaming it (without moving `log_format` earlier) makes nginx fail to boot with `unknown log format whisper`. (The `map`/`limit_req_zone` tolerate forward references, so only `log_format` actually needs the ordering.)
-- [nginx/templates/openwebui.conf.template](nginx/templates/openwebui.conf.template) — the actual `location /whisper/`, duplicated inside both the `${PRIMARY_DOMAIN}` and `${SECONDARY_DOMAIN}` `:443` server blocks. (nginx can't add a location to an existing `server_name` from a separate `server` block, so it can't live entirely in its own file — it's a second `location` in each server, next to open webui's `location /`.)
+- [nginx/templates/00-whisper.conf.template](nginx/templates/00-whisper.conf.template) — the http-context bits: the bearer-token `map`, the per-IP rate-limit zone, and the access-log format. These can't live inside a `server` block, which is why they stay in their own file even though whisper now has a server file too. **The `00-` prefix is load-bearing:** `include conf.d/*.conf` loads files alphabetically, and the `log_format` here must be parsed before the `access_log` that references it in `11-whisper.conf` — the prefix forces this file first. Renaming it (without moving `log_format` earlier) makes nginx fail to boot with `unknown log format whisper`. (The `map`/`limit_req_zone` tolerate forward references, so only `log_format` actually needs the ordering.)
+- [nginx/templates/11-whisper.conf.template](nginx/templates/11-whisper.conf.template) — the `whisper.${DOMAIN}` server block and its `location /`.
 
 What the location enforces, in request order:
-1. **TLS** — reuses the per-domain cert; no separate cert for this.
+1. **TLS** — the wildcard cert inherited from `nginx.conf`; nothing cert-related in this file.
 2. **Bearer token** — requests whose `Authorization: Bearer <token>` isn't a known token get `401` before nginx ever touches Whisper. Clients send it exactly like the OpenAI SDK does. Tokens are defined in the `map` (see [multi-token access](#granting-access-to-other-people-multiple-tokens) below).
 3. **Method lock** — only `POST`; anything else gets `405`.
-4. **Rate limit** — 10 req/min per IP, burst 5.
+4. **Rate limit** — 10 req/min, burst 5. Keyed on `$binary_remote_addr`, but see the caveat below: it behaves as a *global* cap, not a per-client one.
 5. **Body cap** — 50M on this location (overrides the 100M default; OpenAI's own cap is 25MB).
-6. **Prefix strip** — `proxy_pass ...:${WHISPER_SERVER_PORT}/` turns `/whisper/v1/audio/transcriptions` into `/v1/audio/transcriptions` for Whisper. Whisper is reached over `host.docker.internal`, which required adding `extra_hosts: host.docker.internal:host-gateway` to the nginx service in docker-compose (it wasn't there before, unlike open-webui/openclaw).
+6. **No path rewriting** — now that whisper owns its own hostname the URI passes through untouched, so `proxy_pass` has **no trailing slash** (`...:${WHISPER_SERVER_PORT}`). The old path-based version needed one to strip the `/whisper/` prefix; adding it back here would rewrite every request to `/`. Whisper is reached over `host.docker.internal`, which required adding `extra_hosts: host.docker.internal:host-gateway` to the nginx service in docker-compose (it wasn't there before, unlike open-webui/openclaw).
 
 Each accepted request is written to `/var/log/nginx/whisper.log` with `user=<name>` (from the map, see below), so you can see who called: `docker exec nginx cat /var/log/nginx/whisper.log`.
 
@@ -86,10 +173,10 @@ docker exec nginx nginx -t
 ```
 Test it (first succeeds, second is `401`, third is `405`):
 ```
-curl -X POST https://<PRIMARY_DOMAIN>/whisper/v1/audio/transcriptions \
+curl -X POST https://whisper.<DOMAIN>/v1/audio/transcriptions \
   -H "Authorization: Bearer <token>" -F file=@sample.wav -F model=whisper-1
-curl -X POST https://<PRIMARY_DOMAIN>/whisper/v1/audio/transcriptions -F file=@sample.wav
-curl https://<PRIMARY_DOMAIN>/whisper/v1/audio/transcriptions -H "Authorization: Bearer <token>"
+curl -X POST https://whisper.<DOMAIN>/v1/audio/transcriptions -F file=@sample.wav
+curl https://whisper.<DOMAIN>/v1/audio/transcriptions -H "Authorization: Bearer <token>"
 ```
 One caveat: nginx only secures the *internet-facing* path. Whisper itself still listens on the host, so make sure your host firewall doesn't also expose `WHISPER_SERVER_PORT` directly (or bind Whisper to `127.0.0.1`), otherwise the auth gets bypassed.
 
@@ -108,38 +195,53 @@ To add a person:
 
 To **revoke** someone, delete their `map` line (and their env var) and recreate. Two things to keep in mind: every *uncommented* `map` line must reference a real env var, or envsubst leaves the literal `${...}` in the config; and each token still has to fit `map_hash_bucket_size` (already bumped to 128, so full-length tokens are fine).
 
-This is deliberately coarse-grained sharing, not real user management: there's no token expiry, no scopes, and the rate limit is per-IP, not per-token. For a handful of trusted people it's plenty; if you outgrow it, put an auth proxy (e.g. oauth2-proxy) or Whisper-side auth in front instead.
+This is deliberately coarse-grained sharing, not real user management: there's no token expiry, no scopes, and the rate limit isn't per-token. For a handful of trusted people it's plenty; if you outgrow it, put an auth proxy (e.g. oauth2-proxy) or Whisper-side auth in front instead.
+
+#### Caveat: the rate limit is global, not per-client
+`limit_req_zone $binary_remote_addr` looks per-IP, but on Docker Desktop it isn't. Docker's proxy NATs all inbound traffic, so `$remote_addr` is **always** the gateway `192.168.65.1`, never the real caller. Verify it yourself:
+```
+docker exec nginx tail /var/log/nginx/whisper.log   # one source address for everything
+```
+Every client therefore shares one bucket. Two legitimate users contend for the same 10r/m, and a single abuser drains the whole budget instead of being throttled individually. Read it as a **total load cap protecting the host**, not as per-client fairness — the bearer token is the real access control, and the `user=` field in the log still tells you who called (it comes from the token map, not the address).
+
+There's no clean fix on this platform: Docker Desktop for Mac has no host networking, and there's no upstream proxy adding `X-Forwarded-For` for `real_ip_from`/`set_real_ip_from` to trust. Putting Cloudflare (or any real proxy) in front would restore real client IPs — at the cost of terminating TLS somewhere else.
+
+The same caveat applies to the ollama zone.
 
 ### Exposing the Ollama API safely
-Same recipe as whisper, applied to ollama — with two ollama-specific twists. Config lives in [nginx/templates/01-ollama.conf.template](nginx/templates/01-ollama.conf.template) (its own `map` → `$ollama_user`, rate-limit zone, and `log_format`) plus a `location /ollama/` in both `:443` server blocks of [openwebui.conf.template](nginx/templates/openwebui.conf.template). Exposed on both domains:
+Same recipe as whisper, applied to ollama — with two ollama-specific twists. Config lives in [nginx/templates/01-ollama.conf.template](nginx/templates/01-ollama.conf.template) (its own `map` → `$ollama_user`, rate-limit zone, and `log_format`) plus the server block in [nginx/templates/12-llm.conf.template](nginx/templates/12-llm.conf.template). Exposed on its own subdomain at the root path:
 ```
-https://<PRIMARY_DOMAIN>/ollama/     e.g. POST /ollama/api/chat, /ollama/v1/chat/completions
-https://<SECONDARY_DOMAIN>/ollama/
+https://llm.<DOMAIN>/       e.g. POST /api/chat, /v1/chat/completions
 ```
-It reuses the whole whisper security model (per-person bearer tokens → `$ollama_user`, per-IP rate limit, per-user access log at `/var/log/nginx/ollama.log`, TLS). The token/multi-token workflow is identical — swap `WHISPER_` for `OLLAMA_` and see [the multi-token section above](#granting-access-to-other-people-multiple-tokens). Two differences from whisper are worth understanding:
+> **Breaking change:** this used to be `https://<domain>/ollama/api/...`. Update any client pointed at the old path.
+It reuses the whole whisper security model (per-person bearer tokens → `$ollama_user`, rate limiting with [the same global-not-per-IP caveat](#caveat-the-rate-limit-is-global-not-per-client), per-user access log at `/var/log/nginx/ollama.log`, TLS). The token/multi-token workflow is identical — swap `WHISPER_` for `OLLAMA_` and see [the multi-token section above](#granting-access-to-other-people-multiple-tokens). Two differences from whisper are worth understanding:
 
 **1. Ollama binds to `127.0.0.1` — and that's deliberately left alone.** Ollama listens on `127.0.0.1:11434` (loopback only). You might expect that exposing it means setting `OLLAMA_HOST=0.0.0.0` — **don't.** The containers (open-webui, openclaw, hindsight) already reach it via `host.docker.internal`, which Docker Desktop forwards to the host loopback, and nginx reaches it the same way. Keeping it on loopback means nginx (with its token) is the *only* public door and the raw `11434` port is never exposed on a public interface. This also means exposing ollama through nginx is purely additive: the internal containers keep their existing direct `host.docker.internal:11434` path, untouched — they don't go through nginx or need a token.
 
 **2. Inference-only: model-management endpoints are blocked.** Unlike whisper's single endpoint, ollama's API includes destructive/management routes (`/api/pull`, `/api/delete`, `/api/create`, `/api/push`, `/api/copy`, `/api/blobs`). A bearer token gates the front door, but to stop a *leaked* token from wiping or bloating your model library, the `location` returns `403` for those paths even with a valid token — inference and read endpoints (`/api/chat`, `/api/generate`, `/api/embed`, `/api/tags`, `/api/show`, `/v1/*`) pass through.
+
+  Note the guard is a regex on `$uri`, and moving to a subdomain changed what `$uri` looks like: it's `^/api/(pull|push|...)` now, not `^/ollama/api/(...)`. If you ever reintroduce a path prefix, that regex has to change with it — otherwise it silently stops matching and model management becomes reachable with any valid token. A `403` on `POST /api/pull` is the test worth keeping (it's in the block below).
 
 **Gotcha — ollama returns `403` for everything:** ollama validates the `Host` header (DNS-rebinding protection) and rejects any non-local value. Since nginx would otherwise forward `Host: <your public domain>`, every proxied request comes back `403`. The location fixes this by overriding `proxy_set_header Host "127.0.0.1:11434";` so ollama trusts the request. (Whisper doesn't do this — it doesn't check `Host`.) Also note `proxy_buffering off;` in the location, so streamed tokens flush to the client instead of being buffered.
 
 Test it:
 ```
 # inference — 200:
-curl -sk https://<DOMAIN>/ollama/api/version -H "Authorization: Bearer <token>"
-curl -sk https://<DOMAIN>/ollama/api/generate -H "Authorization: Bearer <token>" \
+curl -sk https://llm.<DOMAIN>/api/version -H "Authorization: Bearer <token>"
+curl -sk https://llm.<DOMAIN>/api/generate -H "Authorization: Bearer <token>" \
   -d '{"model":"<model>","prompt":"say hi"}'
 # chat completions - 200:
-curl -sk https://<DOMAIN>/ollama/v1/chat/completions -H "Authorization: Bearer <token>" \
+curl -sk https://llm.<DOMAIN>/v1/chat/completions -H "Authorization: Bearer <token>" \
   -d '{"model":"huihui_ai/Qwen3.6-abliterated:35b","messages":[{"role": "system", "content": "be helpful"}, {"role": "user", "content": "tell me a joke"}]}'
 # no/bad token — 401; management endpoint even with a valid token — 403:
-curl -sk https://<DOMAIN>/ollama/api/version
-curl -sk -X POST https://<DOMAIN>/ollama/api/pull -H "Authorization: Bearer <token>"
+curl -sk https://llm.<DOMAIN>/api/version
+curl -sk -X POST https://llm.<DOMAIN>/api/pull -H "Authorization: Bearer <token>"
+# unclaimed subdomain — connection dropped by the :443 catch-all, not Open WebUI:
+curl -sk https://nope.<DOMAIN>/
 ```
 
 #### CORS: what it's for and why the `OPTIONS` handling exists
-Both the `/ollama/` and `/whisper/` locations answer `OPTIONS` requests with `204` + `Access-Control-Allow-*` headers *before* the token check. Here's why.
+Both the ollama and whisper locations answer `OPTIONS` requests with `204` + `Access-Control-Allow-*` headers *before* the token check. Here's why.
 
 CORS (Cross-Origin Resource Sharing) is a **browser** security mechanism. When JavaScript running on origin A (e.g. a web app, or an Electron app like Obsidian) calls an API on a different origin B, the browser won't let the script send the request — or read the response — unless server B explicitly opts in with `Access-Control-Allow-Origin` headers. For any "non-simple" request (which includes anything carrying an `Authorization: Bearer` header), the browser first sends a **preflight** `OPTIONS` request to B to ask "am I allowed?", and crucially sends it **without** the `Authorization` header. Only if that preflight returns success + the right CORS headers does it send the real request.
 

@@ -1,0 +1,19 @@
+# Infomaniak API credentials for certbot's DNS-01 challenge.
+#
+# SETUP
+#   1. Copy this file to `infomaniak.ini` (same directory). It is gitignored.
+#   2. Create a token at https://manager.infomaniak.com -> Users and profile -> My profile -> Developer -> API tokens
+#      Create token, with scopes "Domain" and "Domain write". Paste it below.
+#   3. chmod 600 nginx/certbot/infomaniak.ini
+#      certbot refuses to run if this file is group/world readable.
+#
+# SECURITY — read this once
+#   A "Domain"-scoped token can rewrite ANY DNS record on your Infomaniak
+#   account, including MX. Its blast radius is larger than the certificates it
+#   exists to obtain: someone holding it can redirect your mail or issue certs
+#   for your domains anywhere. Treat it as your most sensitive credential here.
+#   If you want to shrink that exposure, delegate only the challenge record —
+#   CNAME _acme-challenge.<domain> to a throwaway zone — so this token has no
+#   authority over your real records.
+
+dns_infomaniak_token = paste-your-infomaniak-api-token-here

@@ -1,0 +1,83 @@
+# Ollama API — https://llm.${DOMAIN}
+#
+# The API is now at the ROOT of its own subdomain:
+#     https://llm.${DOMAIN}/api/chat
+#     https://llm.${DOMAIN}/v1/chat/completions
+# It used to be https://<domain>/ollama/api/... — update any client configured
+# against the old path.
+#
+# The http-context directives this block depends on — the $ollama_user bearer
+# map, the `ollama` log format, and the `ollama` rate-limit zone — live in
+# 01-ollama.conf.template, which loads first (alphabetical include).
+#
+# Ollama runs on the HOST bound to 127.0.0.1:11434 (loopback only). Keep it that
+# way: containers reach it over host.docker.internal and Docker Desktop forwards
+# to the host loopback, so nginx stays the ONLY public door. Do NOT set
+# OLLAMA_HOST=0.0.0.0 to make this work.
+
+server {
+    listen 443 ssl;
+    http2 on;
+
+    server_name llm.${DOMAIN};
+
+    # Multimodal requests carry base64-encoded images.
+    client_max_body_size 100M;
+
+    location / {
+        # CORS preflight (see the whisper template for why): answer the browser's
+        # unauthenticated OPTIONS before the auth check.
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin  "*" always;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
+            add_header Access-Control-Max-Age       86400 always;
+            return 204;
+        }
+        # The upstream sets its OWN CORS headers. Strip them so ours isn't
+        # duplicated — browsers reject a response with two
+        # Access-Control-Allow-Origin values — then set exactly one below.
+        proxy_hide_header Access-Control-Allow-Origin;
+        proxy_hide_header Access-Control-Allow-Credentials;
+        proxy_hide_header Access-Control-Allow-Methods;
+        proxy_hide_header Access-Control-Allow-Headers;
+        # Let the browser read the actual (non-preflight) response.
+        add_header Access-Control-Allow-Origin "*" always;
+
+        # Require a valid bearer token; $ollama_user is the caller's name.
+        if ($ollama_user = "") {
+            return 401;
+        }
+        # Block model-management endpoints even for valid tokens: a leaked token
+        # must not be able to delete or bloat your models. Inference/read only.
+        #
+        # NOTE: this pattern lost its /ollama prefix when the API moved to its own
+        # subdomain. $uri is now /api/pull, not /ollama/api/pull — if you ever
+        # reintroduce a path prefix, this regex must change with it or the block
+        # silently stops matching and model management becomes reachable.
+        if ($uri ~* "^/api/(pull|push|delete|create|copy|blobs)") {
+            return 403;
+        }
+
+        limit_req zone=ollama burst=20 nodelay;
+        access_log /var/log/nginx/ollama.log ollama;
+
+        # No path rewriting now that ollama owns its own hostname: /api/... and
+        # /v1/... pass through untouched. Don't add a trailing slash here.
+        proxy_pass http://host.docker.internal:11434;
+
+        proxy_http_version 1.1;
+        # Ollama validates the Host header (DNS-rebinding guard) and rejects any
+        # non-local value with 403. Present a local Host rather than the public
+        # domain, so it trusts the proxied request.
+        proxy_set_header Host "127.0.0.1:11434";
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Ollama streams tokens; disable buffering so they flush to the client,
+        # and allow long generations without nginx timing out.
+        proxy_buffering off;
+        proxy_read_timeout 3600;
+    }
+}

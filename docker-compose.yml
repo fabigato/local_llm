@@ -55,11 +55,14 @@ services:
       - "443:443"
 
     environment:
-      # Domains are injected into the nginx config at container startup via the
-      # official image's envsubst-on-templates feature. Keeps real domains out
-      # of git. Set these in .env (see .env.example).
-      PRIMARY_DOMAIN: ${PRIMARY_DOMAIN}
-      SECONDARY_DOMAIN: ${SECONDARY_DOMAIN}
+      # The apex domain, injected into the nginx config at container startup via
+      # the official image's envsubst-on-templates feature. Keeps the real domain
+      # out of git. Set it in .env (see .env.example).
+      #
+      # One variable covers every service: the wildcard cert means the templates
+      # build their own hostnames from it (chat.${DOMAIN}, whisper.${DOMAIN},
+      # llm.${DOMAIN}), so a new service needs no new env var here.
+      DOMAIN: ${DOMAIN}
       # Whisper transcription API exposure (see nginx/templates/00-whisper.conf.template).
       WHISPER_SERVER_PORT: ${WHISPER_SERVER_PORT}
       WHISPER_AUTH_TOKEN: ${WHISPER_AUTH_TOKEN}
@@ -81,9 +84,12 @@ services:
       # startup. The output dir must NOT be a read-only mount.
       - ./nginx/templates:/etc/nginx/templates:ro
 
-      # certificates
-      - ./nginx/certbot/conf:/etc/letsencrypt
-      - ./nginx/certbot/www:/var/www/certbot
+      # certificates. Read-only: nginx only ever reads them, and certbot writes
+      # them from its own container (scripts/certbot-renew.sh).
+      #
+      # There is no /var/www/certbot mount any more. ACME challenges are solved
+      # over DNS now, so nginx never serves a challenge file.
+      - ./nginx/certbot/conf:/etc/letsencrypt:ro
 
     networks:
       - ai-network

@@ -3,24 +3,22 @@
 # NOTE ON THE "00-" FILENAME PREFIX: nginx.conf does `include conf.d/*.conf`,
 # which loads files in alphabetical order. The `log_format whisper` defined below
 # MUST be parsed before the `access_log ... whisper` that references it in
-# openwebui.conf. The 00- prefix forces this file to load first. Don't rename it
+# 11-whisper.conf. The 00- prefix forces this file to load first. Don't rename it
 # without moving log_format somewhere parsed earlier, or nginx fails to boot with
 # "unknown log format whisper". (map/limit_req_zone here tolerate forward refs, so
 # only log_format actually needs the ordering.)
 #
 # Whisper runs on the HOST (like ollama/comfyui) at :${WHISPER_SERVER_PORT} with
 # an OpenAI-style /v1/audio/transcriptions endpoint and NO auth of its own. nginx
-# adds the whole security layer: TLS (reused from the primary cert), a bearer
-# token, per-IP rate limiting, method/path lockdown, and a bounded upload size.
+# adds the whole security layer: TLS (the wildcard cert declared in nginx.conf), a
+# bearer token, per-IP rate limiting, method lockdown, and a bounded upload size.
 #
-# The actual `location /whisper/` lives inside the PRIMARY_DOMAIN and
-# SECONDARY_DOMAIN :443 server blocks in openwebui.conf.template (nginx can't add
-# a location to an existing server_name from a separate server block). This file
-# only holds the http-context directives those locations depend on — defined once
-# here, shared by both domains.
+# This file holds only http-context directives — the bearer map, log format and
+# rate-limit zone. They can't live in a server block, so they stay here even
+# though whisper now has a server file of its own; the matching `location /` is in
+# 11-whisper.conf.template.
 #
-# Reached publicly at: https://${PRIMARY_DOMAIN}/whisper/v1/audio/transcriptions
-#                  and: https://${SECONDARY_DOMAIN}/whisper/v1/audio/transcriptions
+# Reached publicly at: https://whisper.${DOMAIN}/v1/audio/transcriptions
 
 # (map_hash_bucket_size, which the long "Bearer <token>" keys below need, is set
 # http-globally in nginx.conf — it has to be parsed before any map block.)
@@ -48,6 +46,21 @@ map $http_authorization $whisper_user {
 log_format whisper '$remote_addr user=$whisper_user [$time_local] '
                    '"$request" $status ${body_bytes_sent}b';
 
-# Per-IP rate limit. 10 requests/min sustained, small burst allowed. Transcription
-# is expensive, so keep this tight and raise only if you hit legitimate 503s.
+# Rate limit: 10 requests/min sustained, small burst allowed. Transcription is
+# expensive, so keep this tight and raise only if you hit legitimate 503s.
+#
+# CAVEAT — this is a GLOBAL limit, not a per-IP one, despite the key. Docker
+# Desktop NATs all inbound traffic through its proxy, so $remote_addr is always
+# the gateway (192.168.65.1) and every caller lands in the same bucket. Check for
+# yourself: `docker exec nginx tail /var/log/nginx/whisper.log` shows one source
+# address for everything.
+#
+# Consequences: two legitimate users contend for the same 10r/m, and one abuser
+# consumes the whole budget rather than being throttled individually. Treat this
+# as a total load cap on the host, not as per-client fairness — the bearer token
+# is the real access control. The `user=` field in the log still identifies who
+# called, since that comes from the token map rather than the address.
+#
+# Not cleanly fixable here: Docker Desktop for Mac has no host networking, and
+# there's no upstream proxy adding X-Forwarded-For for real_ip_from to trust.
 limit_req_zone $binary_remote_addr zone=whisper:10m rate=10r/m;

@@ -26,5 +26,16 @@
     <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
   </dict>
 
+  <!-- Capture output. DNS-01 renewal has failure modes that produce no visible
+       symptom for up to 90 days (a revoked API token, an Infomaniak API change),
+       unlike the old webroot flow where a broken nginx was immediately obvious.
+       These logs are the only place that surfaces. Check them if a cert nears
+       expiry:  tail -n 50 /tmp/certbot-renew.err
+       Deeper detail lands in nginx/certbot/logs/letsencrypt.log. -->
+  <key>StandardOutPath</key>
+  <string>/tmp/certbot-renew.out</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/certbot-renew.err</string>
+
 </dict>
 </plist>

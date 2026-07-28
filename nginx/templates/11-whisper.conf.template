@@ -1,0 +1,75 @@
+# Whisper transcription API — https://whisper.${DOMAIN}
+#
+# The endpoint is now at the ROOT of its own subdomain:
+#     https://whisper.${DOMAIN}/v1/audio/transcriptions
+# It used to be https://<domain>/whisper/v1/audio/transcriptions. Any client
+# configured against the old path (e.g. the Obsidian plugin) must be updated.
+#
+# The http-context directives this block depends on — the $whisper_user bearer
+# map, the `whisper` log format, and the `whisper` rate-limit zone — live in
+# 00-whisper.conf.template, which loads first (alphabetical include).
+#
+# Whisper itself runs on the HOST at :${WHISPER_SERVER_PORT} with an OpenAI-style
+# API and NO auth of its own. Everything protecting it is here: TLS, a bearer
+# token, per-IP rate limiting, method lockdown, and a bounded upload size.
+
+server {
+    listen 443 ssl;
+    http2 on;
+
+    server_name whisper.${DOMAIN};
+
+    location / {
+        # CORS preflight: browser/Electron clients (e.g. the Obsidian plugin) send
+        # an unauthenticated OPTIONS before the real POST. Answer it here, BEFORE
+        # the auth check — otherwise it 401s and the client reports "network error".
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin  "*" always;
+            add_header Access-Control-Allow-Methods "POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
+            add_header Access-Control-Max-Age       86400 always;
+            return 204;
+        }
+        # The upstream sets its OWN CORS headers. Strip them so ours isn't
+        # duplicated — browsers reject a response with two
+        # Access-Control-Allow-Origin values — then set exactly one below.
+        proxy_hide_header Access-Control-Allow-Origin;
+        proxy_hide_header Access-Control-Allow-Credentials;
+        proxy_hide_header Access-Control-Allow-Methods;
+        proxy_hide_header Access-Control-Allow-Headers;
+        # Let the browser read the actual (non-preflight) response.
+        add_header Access-Control-Allow-Origin "*" always;
+
+        # Require a valid bearer token; reject everything else before proxying.
+        # $whisper_user is the caller's name (empty = unknown token). Map + log
+        # format live in 00-whisper.conf.template.
+        if ($whisper_user = "") {
+            return 401;
+        }
+        access_log /var/log/nginx/whisper.log whisper;
+        # Only POST reaches whisper — the transcription endpoint is POST-only.
+        if ($request_method !~ ^(POST)$) {
+            return 405;
+        }
+
+        limit_req zone=whisper burst=5 nodelay;
+
+        # Bound uploads (OpenAI's own cap is 25MB; adjust to taste).
+        client_max_body_size 50M;
+
+        # No path rewriting now that whisper owns its own hostname: the request
+        # URI passes through untouched, so /v1/audio/transcriptions arrives as-is.
+        # (The old /whisper/ location needed a trailing slash here to strip the
+        # prefix. Don't add one back — it would rewrite the URI to /.)
+        proxy_pass http://host.docker.internal:${WHISPER_SERVER_PORT};
+
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Transcription can be slow; give it room but don't hang forever.
+        proxy_read_timeout 300;
+    }
+}

@@ -6,9 +6,14 @@
 !.openclaw/openclaw.json
 !.openclaw/workflows/
 
-# nginx: certbot state contains real domains in paths AND TLS private keys.
-# Never commit these. Rendered conf output lives only inside the container.
+# nginx: certbot state contains TLS private keys. Never commit it. Rendered conf
+# output lives only inside the container.
 nginx/certbot/conf/
-!nginx/certbot/conf/renewal-hooks/deploy/reload-nginx.sh
+nginx/certbot/logs/
 nginx/certbot/www/
 nginx/conf.d/
+
+# Infomaniak API token used for the DNS-01 challenge. A "Domain"-scoped token can
+# rewrite any DNS record on the account, including MX — this is the most sensitive
+# file in the repo. Keep it at mode 600; the .example is the committed template.
+nginx/certbot/infomaniak.ini
