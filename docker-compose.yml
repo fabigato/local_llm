@@ -71,7 +71,7 @@ services:
       # WHISPER_AUTH_TOKEN_BOB: ${WHISPER_AUTH_TOKEN_BOB}
       # Ollama API exposure (see nginx/templates/01-ollama.conf.template).
       OLLAMA_AUTH_TOKEN: ${OLLAMA_AUTH_TOKEN}
-      # OLLAMA_AUTH_TOKEN_ALICE: ${OLLAMA_AUTH_TOKEN_ALICE}
+      OLLAMA_AUTH_TOKEN2: ${OLLAMA_AUTH_TOKEN2}
       # OLLAMA_AUTH_TOKEN_BOB: ${OLLAMA_AUTH_TOKEN_BOB}
 
     # Needed so nginx can reach whisper, which runs on the host (like ollama/comfyui).

@@ -26,7 +26,7 @@ map $http_authorization $ollama_user {
     "Bearer ${OLLAMA_AUTH_TOKEN}"           "owner";
 
     # Add more people like this (uncomment, add matching env var + .env value):
-    #"Bearer ${OLLAMA_AUTH_TOKEN_ALICE}"     "alice";
+    "Bearer ${OLLAMA_AUTH_TOKEN2}"          "simi";
     #"Bearer ${OLLAMA_AUTH_TOKEN_BOB}"       "bob";
 }
 
