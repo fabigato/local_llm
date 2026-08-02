@@ -17,3 +17,10 @@ nginx/conf.d/
 # rewrite any DNS record on the account, including MX — this is the most sensitive
 # file in the repo. Keep it at mode 600; the .example is the committed template.
 nginx/certbot/infomaniak.ini
+
+# Stray TLS cert/key files. `tailscale cert <name>` writes <name>.crt/.key to the
+# current dir; if run from the repo root that drops a private key here. Nothing in
+# the repo consumes these (tailscale serve keeps its own copy in tailscaled state),
+# so ignore them everywhere as a guard against ever committing a private key.
+*.crt
+*.key

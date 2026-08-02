@@ -393,4 +393,36 @@ Two workflow files, nearly identical:
 
 The only diff is that default image. For the hybrid to work, copy [misc/blank.png](misc/blank.png) into ComfyUI's `input/` folder.
 
+## Exposing ComfyUI remotely (Tailscale, tailnet-only)
+
+ComfyUI is reachable from outside the house over **Tailscale**, *not* through the nginx bearer-token recipe used for whisper/ollama. That's a deliberate choice, for two reasons:
+
+1. **ComfyUI has no auth and is an RCE surface.** It executes arbitrary Python via custom nodes and reads/writes host files, so a public door — even a bearer-gated one — is one misconfig away from full host compromise. Tailscale removes it from the public internet entirely: only enrolled devices on the tainet can open a connection at all. Network-level control instead of app-level.
+2. **It's a browser UI with websockets, not an API.** The bearer-token `map` works because SDK clients attach `Authorization` to every call; a browser loading a page + WebSocket can't. Over the tainet it Just Works with no token/CORS gymnastics.
+
+**Binding.** ComfyUI (the Comfy Desktop app) already listens on `127.0.0.1:8188` — loopback only, no flag change needed. That single binding satisfies all three consumers without exposing anything on the LAN:
+- **host tools** hit `127.0.0.1:8188` directly;
+- **containers** (openclaw, open-webui) reach it via `host.docker.internal`, which Docker Desktop forwards to the host loopback — the exact mechanism ollama relies on;
+- **anyone on the house LAN** cannot reach it (nothing is bound to the LAN interface).
+
+Binding to `0.0.0.0` would expose it to the house; binding to the tainet IP (`100.x`) would break container access, because `host.docker.internal` maps to the host loopback, not the tainet interface. Loopback is the only interface all three can share — and Tailscale bridges the tainet to it.
+
+**The bridge** is a persistent Tailscale Serve proxy (run once on the host; requires Serve + HTTPS/MagicDNS enabled once in the tainet admin console):
+
+```
+tailscale serve --bg 8188            # listen HTTPS/443 on the node's <name>.<tailnet>.ts.net, proxy -> 127.0.0.1:8188
+tailscale serve status               # view config: "<name>.ts.net (tailnet only) | / proxy http://127.0.0.1:8188"
+tailscale serve reset                # tear it down
+```
+
+- `--bg` makes it **persistent** (written to tailscaled state, survives reboots); without it, Serve runs in the foreground and is torn down on Ctrl-C.
+- The `8188` is the **proxy target**, not the listen port. Serve's default listen mode is HTTPS on **443** of the `.ts.net` name, with an auto-provisioned Let's Encrypt cert — which is why the URL has no `:8188`.
+- This is **Serve, not Funnel.** Serve = tainet-only. Funnel would republish it to the public internet, defeating the whole point — don't use it here.
+
+**Why 443 doesn't clash with nginx.** nginx's 443 is a real kernel socket that Docker publishes on the LAN/public interfaces. Serve's 443 lives inside tailscaled's own userspace stack: remote tainet traffic arrives *inside the WireGuard tunnel* (UDP), gets decrypted, and tailscaled terminates the TLS with the `.ts.net` cert — all before the host kernel ever sees a SYN on 443. Same number, never the same packets:
+- LAN/public `:443` → kernel → Docker → **nginx** (`chat.${DOMAIN}`, …)
+- tainet `:443` → tunnel → **tailscaled** → **ComfyUI**
+
+**Gotcha — you cannot test this from the serving Mac.** A connection originating *on the host* to its own tainet IP is local delivery, so the host kernel routes it to Docker's `[::]:443` listener (dual-stack, `net.inet6.ip6.v6only=0`, so it grabs IPv4 too) and you get nginx's `*.${DOMAIN}` cert instead of the `.ts.net` one — `curl` fails with "no alternative certificate subject name matches". This is *not* a real failure; it only affects host-originated connections. **Verify from another tainet device** (e.g. a phone with Wi-Fi off, forcing it through the tainet): open `https://<node>.<tailnet>.ts.net/` and confirm ComfyUI loads with a valid padlock.
+
 Where the workflow JSON goes: for openclaw, copy it into the openclaw workflows folder (`.openclaw/workflows/`); for open-webui, upload it via the UI.
