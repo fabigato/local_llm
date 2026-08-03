@@ -112,6 +112,13 @@ services:
       TELEGRAM_BOT_TOKEN: ${OPENCLAW_TELEGRAM_BOT_TOKEN}
       OPENCLAW_HOST_LAN_IP: ${OPENCLAW_HOST_LAN_IP}
       OPENCLAW_COMFY_BASE_URL: ${OPENCLAW_COMFY_BASE_URL}
+      # Speech-to-text: OpenClaw's media pipeline (tools.media.audio) transcribes
+      # inbound voice/audio via the whisper API at https://whisper.${DOMAIN}/v1.
+      # DOMAIN builds that URL; WHISPER_AUTH_TOKEN is the bearer it sends; OPENAI_API_KEY
+      # is only a placeholder to satisfy the openai provider's key gate (see .env).
+      DOMAIN: ${DOMAIN}
+      WHISPER_AUTH_TOKEN: ${WHISPER_AUTH_TOKEN}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
 
       # Tell OpenClaw to look inside our baked-in system directory for extensions
       OPENCLAW_PLUGINS_PATH: /usr/share/openclaw/extensions

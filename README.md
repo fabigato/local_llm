@@ -208,6 +208,29 @@ There's no clean fix on this platform: Docker Desktop for Mac has no host networ
 
 The same caveat applies to the ollama zone.
 
+#### Feeding Whisper to OpenClaw (speech-to-text in chat + Telegram)
+OpenClaw can transcribe inbound voice notes and audio clips by pointing its media pipeline at the Whisper API above. Once wired, a Telegram voice note (OGG/Opus) — or any attached audio on the HTTP chat endpoint — is transcribed *before* the agent reads it: the transcript becomes the message body, and with echo on the bot first replies `📝 "<transcript>"` so you can see what it heard. It's channel-agnostic, so the same config covers Telegram and every other channel.
+
+The wiring lives in [.openclaw/openclaw.json](.openclaw/openclaw.json) under `tools.media.audio`, plus a few supporting pieces. The non-obvious parts:
+
+- **It rides on the `openai` provider, by design.** OpenClaw's STT-capable providers each have a fixed request shape; only the `openai` one POSTs to the standard OpenAI `/v1/audio/transcriptions` endpoint that our Whisper server speaks (xAI uses `/stt`, OpenRouter/DeepInfra use different bodies). So `models` is `[{ "provider": "openai", "model": "whisper-1" }]` — `whisper-1` is just a placeholder the server ignores. Note the entry is an **object**, not a `"provider/model"` string (a string fails schema validation with `tools.media.audio.models.0: Invalid input`).
+- **`plugins.allow` is a real allowlist.** Stock plugins are disabled unless listed (`openclaw plugins list` shows `N/95 enabled`). The `openai` plugin registers the audio transcriber, so `"openai"` must be in `plugins.allow` *and* enabled in `plugins.entries`, or STT silently has no provider.
+- **The Whisper credential is decoupled from the provider key.** `baseUrl` (`https://whisper.${DOMAIN}/v1`) and the bearer token both live inside `tools.media.audio` — the token via `request.auth` (`mode: authorization-bearer`), which overrides the `Authorization` header at request time. So `models.providers.openai.apiKey` is **not** used for transcription; it only exists to satisfy OpenClaw's "a provider must have a non-empty key" gate. It's set to `${OPENAI_API_KEY}`, a placeholder in `.env` — drop a real `sk-...` key there later to use `openai` for chat, and STT is unaffected (its base URL + auth are independent). This is also why the audio path doesn't touch `models.providers.openai.baseUrl`: chat would still go to `api.openai.com`.
+- **No `language` set, on purpose.** `tools.media.audio.language` is a hint forwarded to Whisper; pinning it (e.g. `en`) biases the decoder and mangles other languages. Leaving it unset makes Whisper auto-detect per clip, which handles mixed English/Spanish/Dutch.
+- **Why the public URL, not the host directly.** OpenClaw's media fetch has an SSRF guard that blocks private networks by default (same story as the ComfyUI base URL). Using `https://whisper.${DOMAIN}/v1` sidesteps it entirely and reuses the bearer + TLS + rate-limit layer nginx already provides. Trade-offs: audio round-trips out through nginx and back, and STT shares Whisper's global 10 req/min cap.
+
+Supporting wiring:
+- `.env` (and `.env.example`): `OPENAI_API_KEY` placeholder — see the comment there.
+- `docker-compose.yml`: `DOMAIN`, `WHISPER_AUTH_TOKEN`, and `OPENAI_API_KEY` are passed into the **openclaw** container's `environment` so the `${...}` refs in `openclaw.json` resolve (they were previously only wired into nginx).
+
+Apply changes with a recreate (new env vars need more than a restart), then verify:
+```
+docker compose up -d --force-recreate openclaw
+docker exec openclaw node dist/index.js config validate        # "Config valid"
+docker exec openclaw node dist/index.js plugins list | grep -i openai   # "enabled"
+```
+Then send the bot a voice note and watch `docker logs -f openclaw | grep -iE 'media|transcri|audio'`. OGG/Opus (Telegram's format) transcribes fine as long as the Whisper server has ffmpeg.
+
 ### Exposing the Ollama API safely
 Same recipe as whisper, applied to ollama — with two ollama-specific twists. Config lives in [nginx/templates/01-ollama.conf.template](nginx/templates/01-ollama.conf.template) (its own `map` → `$ollama_user`, rate-limit zone, and `log_format`) plus the server block in [nginx/templates/12-llm.conf.template](nginx/templates/12-llm.conf.template). Exposed on its own subdomain at the root path:
 ```

@@ -65,17 +65,40 @@
       "search": {
         "provider": "duckduckgo"
       }
+    },
+    "media": {
+      "audio": {
+        "enabled": true,
+        "models": [
+          {
+            "provider": "openai",
+            "model": "whisper-1"
+          }
+        ],
+        "baseUrl": "https://whisper.${DOMAIN}/v1",
+        "echoTranscript": true,
+        "request": {
+          "auth": {
+            "mode": "authorization-bearer",
+            "token": "${WHISPER_AUTH_TOKEN}"
+          }
+        }
+      }
     }
   },
   "plugins": {
     "allow": [
       "hindsight-openclaw",
-      "comfy"
+      "comfy",
+      "openai"
     ],
     "slots": {
       "memory": "hindsight-openclaw"
     },
     "entries": {
+      "openai": {
+        "enabled": true
+      },
       "ollama": {
         "enabled": true
       },
@@ -129,6 +152,9 @@
   "models": {
     "mode": "merge",
     "providers": {
+      "openai": {
+        "apiKey": "${OPENAI_API_KEY}"
+      },
       "ollama": {
         "baseUrl": "http://host.docker.internal:11434",
         "api": "ollama",
@@ -250,7 +276,7 @@
   },
   "meta": {
     "lastTouchedVersion": "2026.5.28",
-    "lastTouchedAt": "2026-07-24T16:27:42.953Z"
+    "lastTouchedAt": "2026-08-03T21:27:28.578Z"
   },
   "commands": {
     "ownerAllowFrom": [
