@@ -113,7 +113,7 @@
         "config": {
           "hindsightApiUrl": "http://hindsight:8888",
           "llmProvider": "openai",
-          "llmModel": "gemma3:12b",
+          "llmModel": "charaf/Huihui-Qwen3.6-35B-A3B-abliterated-mlx:instruct",
           "llmBaseUrl": "http://ollama:11434/v1"
         }
       },
@@ -161,11 +161,12 @@
         "apiKey": "OLLAMA_API_KEY",
         "models": [
           {
-            "id": "gemma4",
-            "name": "gemma4",
-            "reasoning": false,
+            "id": "rafw007/Qwen3.6-35B-A3B-mlx-claude-coder-abliterated:latest",
+            "name": "rafw007/Qwen3.6-35B-A3B-mlx-claude-coder-abliterated:latest",
+            "reasoning": true,
             "input": [
-              "text"
+              "text",
+              "image"
             ],
             "cost": {
               "input": 0,
@@ -173,7 +174,28 @@
               "cacheRead": 0,
               "cacheWrite": 0
             },
-            "contextWindow": 128000,
+            "contextWindow": 262144,
+            "maxTokens": 8192,
+            "compat": {
+              "supportsTools": true,
+              "supportsUsageInStreaming": true
+            }
+          },
+          {
+            "id": "huihui_ai/qwen3.5-abliterated:122B",
+            "name": "huihui_ai/qwen3.5-abliterated:122B",
+            "reasoning": true,
+            "input": [
+              "text",
+              "image"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 262144,
             "maxTokens": 8192,
             "compat": {
               "supportsTools": true,
@@ -223,26 +245,6 @@
             }
           },
           {
-            "id": "nutboy02/Qwen3.6-35B-A3B-Claude-4.7-Opus-abliterated-uncenfull:latest",
-            "name": "nutboy02/Qwen3.6-35B-A3B-Claude-4.7-Opus-abliterated-uncenfull:latest",
-            "reasoning": true,
-            "input": [
-              "text"
-            ],
-            "cost": {
-              "input": 0,
-              "output": 0,
-              "cacheRead": 0,
-              "cacheWrite": 0
-            },
-            "contextWindow": 262144,
-            "maxTokens": 8192,
-            "compat": {
-              "supportsTools": true,
-              "supportsUsageInStreaming": true
-            }
-          },
-          {
             "id": "Jarcgon/Qwen3.6-35B-A3B-Claude-4.7-Opus-abliterated-uncenfull:latest",
             "name": "Jarcgon/Qwen3.6-35B-A3B-Claude-4.7-Opus-abliterated-uncenfull:latest",
             "reasoning": true,
@@ -276,7 +278,7 @@
   },
   "meta": {
     "lastTouchedVersion": "2026.5.28",
-    "lastTouchedAt": "2026-08-03T21:27:28.578Z"
+    "lastTouchedAt": "2026-08-03T22:28:23.808Z"
   },
   "commands": {
     "ownerAllowFrom": [
