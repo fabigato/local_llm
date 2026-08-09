@@ -3,7 +3,7 @@ services:
     image: ghcr.io/open-webui/open-webui:main
     container_name: open-webui
 
-    restart: unless-stopped
+    restart: always
 
     ports:
       - "3000:8080"
@@ -69,7 +69,7 @@ services:
     image: nginx:latest
     container_name: nginx
 
-    restart: unless-stopped
+    restart: always
 
     depends_on:
       - open-webui
@@ -129,9 +129,14 @@ services:
       HOME: /home/node
       TERM: xterm-256color
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
-      CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY}
-      CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY}
-      CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE}
+      # CLAUDE_AI_SESSION_KEY / CLAUDE_WEB_SESSION_KEY / CLAUDE_WEB_COOKIE were
+      # dropped deliberately. They came in with the upstream openclaw example and
+      # were never set in .env, so compose warned about them on every `up`. They
+      # feed exactly one thing (dist/provider-usage*.js): a claude.ai session
+      # cookie used to fetch subscription usage windows from
+      # claude.ai/api/organizations/<id>/usage. Nothing else reads them, and this
+      # stack infers against local ollama, so there is no usage to report. Re-add
+      # these three lines (plus a sk-ant-... value in .env) if you ever want it.
       TELEGRAM_OWNER: telegram:${OPENCLAW_TELEGRAM_USER_ID}
       TELEGRAM_BOT_TOKEN: ${OPENCLAW_TELEGRAM_BOT_TOKEN}
       OPENCLAW_HOST_LAN_IP: ${OPENCLAW_HOST_LAN_IP}
@@ -153,7 +158,7 @@ services:
       - "${OPENCLAW_GATEWAY_PORT:-18789}:18789"
       - "${OPENCLAW_BRIDGE_PORT:-18790}:18790"
     init: true
-    restart: unless-stopped
+    restart: always
     # Check if plugin folder exists. If missing, install it once directly into the mounted volume, then boot.
     command:
       [
@@ -172,7 +177,7 @@ services:
   hindsight:
     image: ghcr.io/vectorize-io/hindsight:latest
     container_name: hindsight
-    restart: unless-stopped
+    restart: always
     ports:
       - "8888:8888"
       - "9999:9999"
