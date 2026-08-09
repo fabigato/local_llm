@@ -11,29 +11,53 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+    # SEED-ONLY, MOSTLY. Open WebUI marks most of its settings "PersistentConfig":
+    # they live in a JSON blob in webui.db, and on boot the DB value wins whenever
+    # one exists. These vars therefore only take effect on a *fresh volume* — they
+    # seed the DB on first run. After that, change them in the admin UI, not here;
+    # editing them below is a no-op. (To hand control back to a var, delete its key
+    # from the config blob in webui.db.) Each entry is tagged [seed] or [always].
+    #
+    # Do NOT add ENABLE_PERSISTENT_CONFIG=False to "fix" that. It makes Open WebUI
+    # rebuild every PersistentConfig value from env/defaults on every boot and never
+    # read the DB back, so anything configured only in the UI silently resets on each
+    # restart. It bit us exactly there: ComfyUI image generation and the whisper STT
+    # endpoint had no env vars, so they blanked out on every restart, while the
+    # settings listed below survived (they were re-seeded from env) and per-model
+    # settings survived too (system prompts and capabilities live in the `model`
+    # table, not the config blob) — which made the loss look bafflingly selective.
     environment:
+      # [always] Not PersistentConfig. Seeds the default for ollama.base_urls, which
+      # IS PersistentConfig — so the connection list itself is UI-managed.
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
-      # Globally enables the memory framework architecture
+      # [seed] memories.enable — globally enables the memory framework architecture
       - ENABLE_MEMORIES=True
-      # Controls permissions for user memory access (Defaults to True)
+      # [always] Not PersistentConfig. Permissions for user memory access (default True)
       - USER_PERMISSIONS_FEATURES_MEMORIES=True
-      - FEATURES_MEMORIES=True # Forces the feature flag ON for all users 
+      - FEATURES_MEMORIES=True # [always] Forces the feature flag ON for all users
 
+      # [seed] rag.web.search.enable
       - ENABLE_WEB_SEARCH=True
-      # Use Brave Search as the web search engine
+      # [seed] rag.web.search.engine — use Brave Search as the web search engine
       - WEB_SEARCH_ENGINE=brave
-      # API key injected from .env
+      # [seed] rag.web.search.brave_search_api_key — injected from .env. Note: the key
+      # is now copied into webui.db, so rotating it in .env alone won't take effect;
+      # rotate it in Admin Settings → Web Search as well.
       - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY}
 
-      # 3. CRITICAL: Forces Open WebUI to read docker-compose environment variables 
-      # over database overrides if you update them in the future.
-      - ENABLE_PERSISTENT_CONFIG=False
-      # on open webui 0.9.5 seems to be a bug where urls for downloading generated images are validated to protect against 
+      # [always] Not PersistentConfig.
+      # on open webui 0.9.5 seems to be a bug where urls for downloading generated images are validated to protect against
       # Server Side Request Forgery. In general, a good idea, since it protects your computer's internal url's from being accessed by external
       # users through the llm via tool calling. But for image search it makes no sense since the tool is safe. That validation only happens if
       # this variable is set to False (default) so this is to turn it off, otherwise generate image tool won't be able to download the
       # generated image
       - ENABLE_RAG_LOCAL_WEB_FETCH=true
+
+      # Image generation (ComfyUI) and speech-to-text (whisper) are deliberately NOT
+      # set here — they're configured in the admin UI and persisted in webui.db.
+      # Env equivalents exist if you ever want them declarative: COMFYUI_BASE_URL,
+      # COMFYUI_WORKFLOW, COMFYUI_WORKFLOW_NODES, IMAGE_GENERATION_ENGINE,
+      # AUDIO_STT_ENGINE, AUDIO_STT_OPENAI_API_BASE_URL, AUDIO_STT_OPENAI_API_KEY.
 
     volumes:
       - open-webui:/app/backend/data

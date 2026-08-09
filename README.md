@@ -280,7 +280,60 @@ Interface managing multi tenancy, login, chat history and agentic tooling
 ### A note on open webui configuration env vars
 
 Open webui settings are sql db first. You could setup add OLLAMA_BASE_URL=http://host.docker.internal:11434 or OPENAI_API_BASE_URL=http://openclaw:18789/v1 to the container environment variables but if you setup up a connection to a different llm in the ui, that will get saved in the litesql db and will take precedence over env vars. The db has user specific settings you don't want to commit, so commiting the db is not a good approach. Therefore, whatever changes you do in the ui will not be part of the containerized application and will have to be changed there in place. Environment variables are given prefence where pragmatic, [here's a list of supported variables](https://docs.openwebui.com/reference/env-configuration/).
-By default, open webui sql database settings take precedence over env vars. To change this, the ENABLE_PERSISTENT_CONFIG variable is set to False in docker compose. That makes env vars take precedence.
+
+**The env vars in docker-compose are seed-only.** Most Open WebUI settings are marked
+*PersistentConfig*: they live in a JSON blob in `webui.db`, and at boot the DB value
+wins wherever one exists. The logic in `open_webui/config.py` is literally:
+
+```python
+if self.config_value is not None and ENABLE_PERSISTENT_CONFIG:
+    self.value = self.config_value   # DB wins
+else:
+    self.value = env_value           # env var, or the built-in default
+```
+
+So a PersistentConfig var in `docker-compose.yml` only does something on a **fresh
+volume** — it seeds the DB on first run. Editing it afterwards is a no-op; change the
+setting in the admin UI instead (or delete that key from the config blob to hand
+control back to the env var). Not every var is PersistentConfig — `OLLAMA_BASE_URL`,
+`FEATURES_MEMORIES`, `USER_PERMISSIONS_FEATURES_MEMORIES` and
+`ENABLE_RAG_LOCAL_WEB_FETCH` are plain env vars that apply on every boot. The compose
+file tags each one `[seed]` or `[always]`.
+
+One consequence worth remembering: secrets get copied into the DB on first run.
+Rotating `BRAVE_SEARCH_API_KEY` in `.env` alone won't take effect — rotate it in the
+UI too.
+
+#### Don't set `ENABLE_PERSISTENT_CONFIG=False`
+
+It looks like the fix for the above ("make my env vars authoritative again"), and it
+was set in this repo for a while. It's a trap. It sends *every* PersistentConfig value
+down the `else` branch on every boot, so the DB is written but never read back —
+meaning **any setting configured only in the UI silently resets on every restart.**
+
+The failure mode is confusing because it's selective. What broke was ComfyUI image
+generation and the whisper STT endpoint; what survived was web search, memories and
+the ollama connection — because those have env vars here that re-seeded them each
+boot — plus all per-model settings (system prompts, capabilities, native function
+calling), because those live in the `model` table, not the config blob. The net
+appearance is "Open WebUI forgets my image and speech settings but remembers
+everything else."
+
+If you'd rather have image/STT declarative anyway, the env vars exist —
+`IMAGE_GENERATION_ENGINE`, `COMFYUI_BASE_URL`, `COMFYUI_WORKFLOW`,
+`COMFYUI_WORKFLOW_NODES`, `AUDIO_STT_ENGINE`, `AUDIO_STT_OPENAI_API_BASE_URL`,
+`AUDIO_STT_OPENAI_API_KEY` — but `COMFYUI_WORKFLOW` means embedding the whole exported
+workflow JSON as a single-line string, and UI edits to it still won't stick.
+
+To read what's actually persisted:
+
+```bash
+docker exec open-webui python3 -c "
+import sqlite3, json
+c = sqlite3.connect('/app/backend/data/webui.db')
+d = json.loads(c.execute('select data from config order by id desc limit 1').fetchone()[0])
+print(json.dumps(d['image_generation'], indent=2))"
+```
 
 ### What doesn't go in env vars
 
