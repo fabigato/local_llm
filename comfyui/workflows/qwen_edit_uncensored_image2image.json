@@ -2,7 +2,7 @@
   "id": "2ef7f1f3-7232-4635-b5d8-8e8e36f20505",
   "revision": 0,
   "last_node_id": 149,
-  "last_link_id": 14625,
+  "last_link_id": 14628,
   "nodes": [
     {
       "id": 64,
@@ -350,7 +350,8 @@
           "name": "CLIP",
           "type": "CLIP",
           "links": [
-            8836
+            8836,
+            14628
           ]
         },
         {
@@ -359,7 +360,9 @@
           "name": "VAE",
           "type": "VAE",
           "links": [
-            8831
+            8831,
+            14626,
+            14627
           ]
         }
       ],
@@ -459,7 +462,7 @@
           "localized_name": "clip",
           "name": "clip",
           "type": "CLIP",
-          "link": 8836
+          "link": 14628
         },
         {
           "label": "vae",
@@ -467,7 +470,7 @@
           "name": "vae",
           "shape": 7,
           "type": "VAE",
-          "link": 8831
+          "link": 14626
         },
         {
           "label": "image1",
@@ -634,7 +637,7 @@
           "type": "LATENT",
           "slot_index": 0,
           "links": [
-            1484
+            8106
           ]
         }
       ],
@@ -671,50 +674,6 @@
       ]
     },
     {
-      "id": 72,
-      "type": "easy cleanGpuUsed",
-      "pos": [
-        2685.0950134033337,
-        -1551.4822710449669
-      ],
-      "size": [
-        161.3404296875,
-        26
-      ],
-      "flags": {},
-      "order": 9,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "anything",
-          "localized_name": "anything",
-          "name": "anything",
-          "type": "*",
-          "link": 1484
-        }
-      ],
-      "outputs": [
-        {
-          "label": "output",
-          "localized_name": "output",
-          "name": "output",
-          "type": "*",
-          "links": [
-            8106
-          ]
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "easy cleanGpuUsed",
-        "ue_properties": {
-          "version": "7.8",
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": []
-    },
-    {
       "id": 73,
       "type": "VAEDecode",
       "pos": [
@@ -743,7 +702,7 @@
           "localized_name": "vae",
           "name": "vae",
           "type": "VAE",
-          "link": 8831
+          "link": 14627
         }
       ],
       "outputs": [
@@ -852,14 +811,6 @@
       "MODEL"
     ],
     [
-      1484,
-      75,
-      0,
-      72,
-      0,
-      "*"
-    ],
-    [
       1487,
       65,
       0,
@@ -869,7 +820,7 @@
     ],
     [
       8106,
-      72,
+      75,
       0,
       73,
       0,
@@ -887,24 +838,24 @@
       8831,
       125,
       2,
-      62,
-      0,
+      133,
+      1,
       "VAE"
     ],
     [
       8836,
       125,
       1,
-      62,
-      2,
+      133,
+      0,
       "CLIP"
     ],
     [
       9587,
       125,
       0,
-      62,
-      1,
+      64,
+      0,
       "MODEL"
     ],
     [
@@ -938,6 +889,30 @@
       75,
       3,
       "LATENT"
+    ],
+    [
+      14626,
+      125,
+      2,
+      132,
+      1,
+      "VAE"
+    ],
+    [
+      14627,
+      125,
+      2,
+      73,
+      1,
+      "VAE"
+    ],
+    [
+      14628,
+      125,
+      1,
+      132,
+      0,
+      "CLIP"
     ]
   ],
   "groups": [

@@ -26,22 +26,10 @@
       "title": "CFGNorm"
     }
   },
-  "72": {
-    "inputs": {
-      "anything": [
-        "75",
-        0
-      ]
-    },
-    "class_type": "easy cleanGpuUsed",
-    "_meta": {
-      "title": "Clean VRAM Used"
-    }
-  },
   "73": {
     "inputs": {
       "samples": [
-        "72",
+        "75",
         0
       ],
       "vae": [
@@ -108,7 +96,7 @@
   },
   "125": {
     "inputs": {
-      "ckpt_name": "Qwen-Rapid-AIO-v2.safetensors"
+      "ckpt_name": ""
     },
     "class_type": "CheckpointLoaderSimple",
     "_meta": {

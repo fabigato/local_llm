@@ -378,18 +378,18 @@ I put the following settings, following the example comfyui workflow from above:
 | steps | 57:3 | |
 | seed | 57:3 | |
 
-For image to image (a.k.a. image edit) these are the settings, referencing [comfyui/api/qwen_edit_uncensored_image2image.json](comfyui/api/qwen_edit_uncensored_image2image_api.json)
+For image to image (a.k.a. image edit) these are the settings, referencing [comfyui/api/qwen_edit_image2image_api.json](comfyui/api/qwen_edit_image2image_api.json)
 | Setting | Value | Notes |
 | --- | --- | --- |
 | image generation | on | |
-| model | Qwen-Rapid-AIO-v2.safetensors | |
+| model | Qwen-Rapid-AIO-v2.safetensors | injected into the workflow's `CheckpointLoaderSimple`, which ships with `ckpt_name` blank on purpose. Must be a Qwen-Image-Edit checkpoint — the graph's `TextEncodeQwenImageEditPlus` nodes only work with that family |
 | image size | 1080x1920 | |
 | image edit engine | comfyui | |
 | ComfyUI Base URL | http://host.docker.internal:8188 | it runs locally on host. Click on refresh icon next to it to verify connection. If it works well you should see the job run history at http://localhost:8188/history and reach an example generated image at http://localhost:8188/view?filename=&lt;name&gt;.png&type=output |
 | comfyui workflow | upload the api workflow file | Watch out while exporting the flow: the precense of the anywhere node led to comfyUI not exporting, without reporting any error, just silently ignoring the export. I replaced it by direct node connections and then export api worked|
 | image | 123 | format is subgraph:node_id. If multiple nodes use that value, use comma separated list |
-| prompt | 132 | had to rename the field, by default was called checkpoint_name |
-| unet_name | 125 | |
+| prompt | 132 | had to rename the field, by default was called text |
+| ckpt_name | 125 | rename the field from the default `unet_name`: node 125 is a `CheckpointLoaderSimple`, whose input is `ckpt_name`. With the wrong name ComfyUI silently ignores the injected value and the model dropdown does nothing |
 | width | 148 | |
 | height | 148 | |
 
@@ -464,7 +464,7 @@ Not part of this repo, but openclaw calls it for image generation/editing. Expec
 Images live in ComfyUI's own dirs, relative to its install path: uploads/inputs in `input/`, results in `output/`.
 
 Two workflow files, nearly identical:
-- [comfyui/api/qwen_edit_uncensored_image2image_api.json](comfyui/api/qwen_edit_uncensored_image2image_api.json) — image edit only.
+- [comfyui/api/qwen_edit_image2image_api.json](comfyui/api/qwen_edit_image2image_api.json) — image edit only. Its `ckpt_name` is left blank: open webui injects the model from the UI.
 - [comfyui/api/qwen_edit_uncensored_image2image_prompt2image_api.json](comfyui/api/qwen_edit_uncensored_image2image_prompt2image_api.json) — same graph, but its `LoadImage` node defaults to `blank.png`, so it also does text-to-image when no image is attached (one workflow for both generate and edit).
 
 The only diff is that default image. For the hybrid to work, copy [misc/blank.png](misc/blank.png) into ComfyUI's `input/` folder.

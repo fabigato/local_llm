@@ -5,58 +5,6 @@
    "last_link_id":14623,
    "nodes":[
       {
-         "id":72,
-         "type":"easy cleanGpuUsed",
-         "pos":[
-            2577.2177734375,
-            -1165.1312255859375
-         ],
-         "size":[
-            161.3404296875,
-            26
-         ],
-         "flags":{
-            
-         },
-         "order":12,
-         "mode":0,
-         "inputs":[
-            {
-               "label":"anything",
-               "localized_name":"anything",
-               "name":"anything",
-               "type":"*",
-               "link":1484
-            }
-         ],
-         "outputs":[
-            {
-               "label":"output",
-               "localized_name":"output",
-               "name":"output",
-               "type":"*",
-               "links":[
-                  8106
-               ]
-            }
-         ],
-         "properties":{
-            "Node name for S&R":"easy cleanGpuUsed",
-            "ue_properties":{
-               "version":"7.8",
-               "widget_ue_connectable":{
-                  
-               },
-               "input_ue_unconnectable":{
-                  
-               }
-            }
-         },
-         "widgets_values":[
-            
-         ]
-      },
-      {
          "id":128,
          "type":"UpscaleModelLoader",
          "pos":[
@@ -1543,7 +1491,7 @@
                "type":"LATENT",
                "slot_index":0,
                "links":[
-                  1484
+                  8106
                ]
             }
          ],
@@ -1594,14 +1542,6 @@
          "MODEL"
       ],
       [
-         1484,
-         75,
-         0,
-         72,
-         0,
-         "*"
-      ],
-      [
          1487,
          65,
          0,
@@ -1611,7 +1551,7 @@
       ],
       [
          8106,
-         72,
+         75,
          0,
          73,
          0,
