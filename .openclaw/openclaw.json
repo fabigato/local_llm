@@ -11,7 +11,8 @@
       },
       "imageGenerationModel": {
         "primary": "comfy/workflow"
-      }
+      },
+      "mediaGenerationAutoProviderFallback": false
     }
   },
   "gateway": {
@@ -114,7 +115,7 @@
           "hindsightApiUrl": "http://hindsight:8888",
           "llmProvider": "openai",
           "llmModel": "charaf/Huihui-Qwen3.6-35B-A3B-abliterated-mlx:instruct",
-          "llmBaseUrl": "http://ollama:11434/v1"
+          "llmBaseUrl": "http://host.docker.internal:11434/v1"
         }
       },
       "duckduckgo": {
@@ -278,7 +279,7 @@
   },
   "meta": {
     "lastTouchedVersion": "2026.5.28",
-    "lastTouchedAt": "2026-08-03T22:28:23.808Z"
+    "lastTouchedAt": "2026-08-16T00:39:22.993Z"
   },
   "commands": {
     "ownerAllowFrom": [

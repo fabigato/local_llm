@@ -175,7 +175,9 @@ services:
       - ai-network
 
   hindsight:
-    image: ghcr.io/vectorize-io/hindsight:latest
+    # Pinned deliberately. `:latest` silently drifted to a 2-month-old 0.7.2 while
+    # upstream moved to 0.9.1; session-scoped memory needs >=0.9 (see README).
+    image: ghcr.io/vectorize-io/hindsight:0.9.1
     container_name: hindsight
     restart: always
     ports:

@@ -455,6 +455,95 @@ ENABLE_FORWARD_USER_INFO_HEADERS=true
 ## Hindsight
 Advanced episodic memory engine, with knowledge graph. This service provides a memory bank that can be set to different levels of granularity, even per user, per input channel. The knowledge graph and time tags in the memories allow for advanced reasoning. It supports openclaw natively and comes with its own ui
 
+### Why `gemma3:12b` is in ollama
+
+**Hindsight does not just store text — it runs an LLM over every conversation to extract facts before writing them.** That call is
+configured by `HINDSIGHT_API_LLM_MODEL` in [docker-compose.yml](docker-compose.yml), pointed at host ollama via
+`HINDSIGHT_API_LLM_BASE_URL=http://host.docker.internal:11434/v1`. It is set to `gemma3:12b`: fact extraction runs on *every*
+retain, so it wants a small fast model, not one of the 24–81GB Qwens used for chat.
+
+**If that model isn't pulled, memory silently stops working.** Ollama answers `/api/chat` for an unknown model with a `404`, so
+every `batch_retain` task fails:
+
+```
+ERROR - Ollama HTTP error after 4 attempts: Client error '404 Not Found' for url 'http://host.docker.internal:11434/api/chat'
+ERROR - Task execution failed: batch_retain, error: Fact extraction failed: 1/1 chunks failed
+```
+
+This is nasty to spot from the outside, because **recall keeps working while retain is dead.** The bot still answers with
+injected memories (`injecting 43 memories into context`) — those are old ones — so from Telegram it looks perfectly healthy while
+nothing new is being written. It ran that way for over a week. If memory ever seems frozen in the past, check
+`docker logs hindsight | grep ERROR` before anything else.
+
+```bash
+ollama pull gemma3:12b     # required — fact extraction, every retain
+ollama pull bge-m3         # see below — currently inert
+```
+
+### Why `bge-m3` is in ollama (and why it does nothing right now)
+
+The compose file sets `HINDSIGHT_API_EMBEDDING_PROVIDER=ollama` and `HINDSIGHT_API_EMBEDDING_MODEL=bge-m3`, **but Hindsight
+ignores both.** It logs `Embeddings: provider=local` at startup and uses its own bundled embedder, which is why recall kept
+working (50–280ms per query embedding) the whole time fact extraction was failing.
+
+The bundled embedder is `BAAI/bge-small-en-v1.5` at **384 dimensions**, on CPU. `bge-m3` is **1024** dimensions, so this isn't
+just a different name for the same thing — the stored vectors are a different shape entirely. Switching providers later would
+mean re-embedding the whole bank, not just flipping the env var.
+
+So `bge-m3` is pulled and ready, but **not currently on the path** — it's staged for if we ever switch embeddings to ollama, and
+it's why those two compose vars aren't doing what they look like they're doing. Don't be misled into thinking a missing `bge-m3`
+could explain a recall problem; it can't, in the current configuration.
+
+### Why the image tag is pinned to `0.9.1` (session-scoped memory)
+
+**Don't put `:latest` back.** That floating tag is what caused the problem this pin solves.
+
+The openclaw plugin can write each session's memories into **one accumulating document** (`update_mode=append`) instead of a
+separate document per conversation turn. It probes `GET /version` once at `service.start` and only enables that when the server
+advertises `features.store_document_text: true`. The gate is strict:
+
+```js
+let storeDocumentText = true;                 // default only when there is NO features object
+if ("features" in payload) {
+    storeDocumentText = isRecord(features) && features.store_document_text === true;
+}
+```
+
+**Hindsight 0.7.2 does not have that flag at all** — its `FeaturesInfo` model exposes only `observations`, `mcp`, `worker`,
+`bank_config_api` and `file_upload_api`. The string `store_document_text` appears nowhere in that image, so there is no env var
+or bank setting that can turn it on. Since 0.7.2 *does* send a `features` object, the strict branch applies and append mode stays
+off. The symptom is this warning on every gateway start, which reads like something you misconfigured but isn't:
+
+```
+API at http://hindsight:8888 reports version "0.7.2" but has features.store_document_text disabled.
+Falling back to per-turn document ids
+```
+
+`:latest` had drifted: the local image was a 2-month-old **0.7.2** while the registry tag had long since moved to **0.9.1**.
+0.9.1 adds `store_document_text` to `FeaturesInfo`, backed by `HINDSIGHT_API_STORE_DOCUMENT_TEXT` with
+`DEFAULT_STORE_DOCUMENT_TEXT = True` — **on by default, no env var needed.** Upgrading alone flipped it:
+
+```
+api_version: 0.9.1
+store_document_text: true
+```
+
+The plugin's minimum for append is 0.5.0, so the version was never the blocker — only the missing flag was.
+
+Migrating 0.7.2 → 0.9.1 ran Alembic migrations over the existing `local_llm_hindsight_data` volume in-place, cleanly and with no
+data loss. 0.9.1 also adds `document_export_api`, `document_import_api`, `audit_log`, `llm_trace` and `bank_llm_health`.
+
+To upgrade in future, bump the pin deliberately and watch the first boot for `Database migrations completed successfully`.
+
+### `llmBaseUrl` in the openclaw plugin config
+
+`plugins.entries.hindsight-openclaw.config.llmBaseUrl` used to read `http://ollama:11434/v1`. **There is no `ollama` container** —
+ollama runs on the host (see the note above about it staying on `127.0.0.1`), so that hostname is `ENOTFOUND` from inside the
+network. Corrected to `http://host.docker.internal:11434/v1`, matching what every other service here uses.
+
+It was dormant rather than fatal: the plugin runs in external-API mode and delegates to the `hindsight` container, so it never
+dialled that URL. It would have broken the moment the plugin was switched to embedded mode.
+
 # Secret management
 put your secrets in a local .env file on the project root. An .env.example file is provided as guide. Whatever you put in there will be inyected on docker compose
 
