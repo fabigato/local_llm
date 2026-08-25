@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.local.comfyui</string>
+
+    <!-- Run as the login user, not root, so nothing in ComfyUI-Shared
+         ends up root-owned and unwritable from the GUI. -->
+    <key>UserName</key>
+    <string>fabigato</string>
+    <key>GroupName</key>
+    <string>staff</string>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/fabigato/ComfyUI-Installs/ComfyUI</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/fabigato/ComfyUI-Installs/ComfyUI/ComfyUI/.venv/bin/python3</string>
+        <string>-s</string>
+        <string>/Users/fabigato/ComfyUI-Installs/ComfyUI/ComfyUI/main.py</string>
+        <string>--listen</string>
+        <string>127.0.0.1</string>
+        <string>--port</string>
+        <string>8188</string>
+        <string>--enable-manager</string>
+        <string>--disable-smart-memory</string>
+        <string>--extra-model-paths-config</string>
+        <string>/Users/fabigato/ComfyUI-Installs/comfyui-daemon.model-paths.yaml</string>
+        <string>--input-directory</string>
+        <string>/Users/fabigato/ComfyUI-Shared/input</string>
+        <string>--output-directory</string>
+        <string>/Users/fabigato/ComfyUI-Shared/output</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- launchd daemons inherit no HOME; Manager and the HF cache need it. -->
+        <key>HOME</key>
+        <string>/Users/fabigato</string>
+        <key>PATH</key>
+        <string>/Users/fabigato/ComfyUI-Installs/ComfyUI/ComfyUI/.venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Manager's "Restart" button exits the process; launchd brings it back. -->
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- Exempt from background CPU/IO throttling; this serves interactive requests. -->
+    <key>ProcessType</key>
+    <string>Interactive</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/fabigato/ComfyUI-Installs/comfyui-daemon.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/fabigato/ComfyUI-Installs/comfyui-daemon.err</string>
+</dict>
+</plist>

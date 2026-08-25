@@ -550,6 +550,8 @@ put your secrets in a local .env file on the project root. An .env.example file 
 # ComfyUI
 Not part of this repo, but openclaw calls it for image generation/editing. Expected to run on port `8188` (see the SSRF note above for reaching it from the container).
 
+**It runs as a launchd daemon, not as the Comfy Desktop app.** Comfy Desktop was a Login Item, so ComfyUI only existed while a GUI user was logged in — an unattended reboot left every consumer with connection refused. It's now started at boot by a LaunchDaemon, with Desktop demoted to a maintenance tool. Config, install steps and the update workflow: [comfyui/launchd/README.md](comfyui/launchd/README.md).
+
 Images live in ComfyUI's own dirs, relative to its install path: uploads/inputs in `input/`, results in `output/`.
 
 Two workflow files, nearly identical:
@@ -565,7 +567,7 @@ ComfyUI is reachable from outside the house over **Tailscale**, *not* through th
 1. **ComfyUI has no auth and is an RCE surface.** It executes arbitrary Python via custom nodes and reads/writes host files, so a public door — even a bearer-gated one — is one misconfig away from full host compromise. Tailscale removes it from the public internet entirely: only enrolled devices on the tainet can open a connection at all. Network-level control instead of app-level.
 2. **It's a browser UI with websockets, not an API.** The bearer-token `map` works because SDK clients attach `Authorization` to every call; a browser loading a page + WebSocket can't. Over the tainet it Just Works with no token/CORS gymnastics.
 
-**Binding.** ComfyUI (the Comfy Desktop app) already listens on `127.0.0.1:8188` — loopback only, no flag change needed. That single binding satisfies all three consumers without exposing anything on the LAN:
+**Binding.** ComfyUI listens on `127.0.0.1:8188` — loopback only. The daemon passes `--listen 127.0.0.1 --port 8188` explicitly rather than relying on defaults ([comfyui/launchd/](comfyui/launchd/README.md)). That single binding satisfies all three consumers without exposing anything on the LAN:
 - **host tools** hit `127.0.0.1:8188` directly;
 - **containers** (openclaw, open-webui) reach it via `host.docker.internal`, which Docker Desktop forwards to the host loopback — the exact mechanism ollama relies on;
 - **anyone on the house LAN** cannot reach it (nothing is bound to the LAN interface).
@@ -575,19 +577,24 @@ Binding to `0.0.0.0` would expose it to the house; binding to the tainet IP (`10
 **The bridge** is a persistent Tailscale Serve proxy (run once on the host; requires Serve + HTTPS/MagicDNS enabled once in the tainet admin console):
 
 ```
-tailscale serve --bg 8188            # listen HTTPS/443 on the node's <name>.<tailnet>.ts.net, proxy -> 127.0.0.1:8188
-tailscale serve status               # view config: "<name>.ts.net (tailnet only) | / proxy http://127.0.0.1:8188"
-tailscale serve reset                # tear it down
+tailscale serve --bg --https=8443 8188   # listen HTTPS/8443 on <name>.<tailnet>.ts.net, proxy -> 127.0.0.1:8188
+tailscale serve status                   # view config
+tailscale serve reset                    # tear it down
 ```
 
+The live URL is therefore **`https://<name>.<tailnet>.ts.net:8443`**.
+
 - `--bg` makes it **persistent** (written to tailscaled state, survives reboots); without it, Serve runs in the foreground and is torn down on Ctrl-C.
-- The `8188` is the **proxy target**, not the listen port. Serve's default listen mode is HTTPS on **443** of the `.ts.net` name, with an auto-provisioned Let's Encrypt cert — which is why the URL has no `:8188`.
+- The trailing `8188` is the **proxy target**, not the listen port. `--https=8443` is the listen port. **Do not put `:8188` in the browser URL** — ComfyUI is bound to loopback, so nothing answers on the tainet at 8188; that request just times out.
+- `--https=8443` overrides Serve's default of HTTPS on **443**, deliberately — see the nginx clash below.
 - This is **Serve, not Funnel.** Serve = tainet-only. Funnel would republish it to the public internet, defeating the whole point — don't use it here.
 
-**Why 443 doesn't clash with nginx.** nginx's 443 is a real kernel socket that Docker publishes on the LAN/public interfaces. Serve's 443 lives inside tailscaled's own userspace stack: remote tainet traffic arrives *inside the WireGuard tunnel* (UDP), gets decrypted, and tailscaled terminates the TLS with the `.ts.net` cert — all before the host kernel ever sees a SYN on 443. Same number, never the same packets:
+**Why not Serve's default 443.** In theory 443 doesn't clash: nginx's 443 is a real kernel socket Docker publishes on the LAN/public interfaces, while Serve's 443 lives inside tailscaled's userspace stack — remote tainet traffic arrives *inside the WireGuard tunnel* (UDP), is decrypted, and tailscaled terminates TLS with the `.ts.net` cert before the host kernel ever sees a SYN on 443. Same number, never the same packets:
 - LAN/public `:443` → kernel → Docker → **nginx** (`chat.${DOMAIN}`, …)
 - tainet `:443` → tunnel → **tailscaled** → **ComfyUI**
 
-**Gotcha — you cannot test this from the serving Mac.** A connection originating *on the host* to its own tainet IP is local delivery, so the host kernel routes it to Docker's `[::]:443` listener (dual-stack, `net.inet6.ip6.v6only=0`, so it grabs IPv4 too) and you get nginx's `*.${DOMAIN}` cert instead of the `.ts.net` one — `curl` fails with "no alternative certificate subject name matches". This is *not* a real failure; it only affects host-originated connections. **Verify from another tainet device** (e.g. a phone with Wi-Fi off, forcing it through the tainet): open `https://<node>.<tailnet>.ts.net/` and confirm ComfyUI loads with a valid padlock.
+In practice it collides for *host-originated* connections. A connection from the Mac to its own tainet IP is local delivery, so the kernel hands it to Docker's `[::]:443` listener (dual-stack, `net.inet6.ip6.v6only=0`, so it grabs IPv4 too) and you get nginx's `*.${DOMAIN}` cert instead of the `.ts.net` one — `curl` fails with "no alternative certificate subject name matches". Moving Serve to **8443** sidesteps this entirely: nothing else listens there, so `curl https://<node>.<tailnet>.ts.net:8443/system_stats` works **from the serving Mac too**, which makes debugging far easier than the old 443 setup.
+
+Still verify real remote reachability **from another tainet device** (e.g. a phone with Wi-Fi off): open `https://<node>.<tailnet>.ts.net:8443/` and confirm ComfyUI loads with a valid padlock.
 
 Where the workflow JSON goes: for openclaw, copy it into the openclaw workflows folder (`.openclaw/workflows/`); for open-webui, upload it via the UI.
