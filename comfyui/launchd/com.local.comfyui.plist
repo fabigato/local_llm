@@ -56,6 +56,21 @@
     <key>ProcessType</key>
     <string>Interactive</string>
 
+    <!-- launchd hands jobs a 256-fd soft limit, which is too low once ComfyUI is
+         reached over HTTP/2 (i.e. through Tailscale Serve): the browser sends the
+         whole page down one connection at once and the proxy fans those ~250
+         streams out into ~250 upstream connections. aiohttp then runs out of
+         descriptors and reports it as a 404 per file rather than a 5xx, so the
+         frontend sees core chunks "missing" (e.g. assets/changeTracker-*.js) and
+         the UI half-breaks: saved workflows don't open, new tabs throw
+         "cannot destructure property 'changeTracker'". Plain HTTP/1.1 on
+         127.0.0.1 never trips it because browsers cap that at 6 connections. -->
+    <key>SoftResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>65536</integer>
+    </dict>
+
     <key>StandardOutPath</key>
     <string>/Users/fabigato/ComfyUI-Installs/comfyui-daemon.log</string>
     <key>StandardErrorPath</key>

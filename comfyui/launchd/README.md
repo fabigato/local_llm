@@ -89,6 +89,9 @@ curl -s 127.0.0.1:8188/system_stats | python3 -m json.tool
   ComfyUI-Manager and the HuggingFace cache resolve paths wrongly.
 - **`ProcessType Interactive`** — exempts the job from the background CPU/IO
   throttling launchd applies to `Standard`. It serves interactive requests.
+- **`SoftResourceLimits: NumberOfFiles 65536`** — launchd's default is **256**, which
+  is too low for HTTP/2 clients and shows up as a *broken frontend, not an error*. See
+  [Symptom: the UI half-works over the Tailnet URL](#symptom-the-ui-half-works-over-the-tailnet-url-but-is-fine-on-127001).
 - **`KeepAlive` + `ThrottleInterval 10`** — also what makes ComfyUI-Manager's
   "Restart" button work: Manager exits the process, launchd returns it ~10s later.
 - **Dropped `--feature-flag show_signin_button=true`** from Desktop's argv; it's a
@@ -130,11 +133,43 @@ ComfyUI-Manager is a pip package in the venv (`comfyui-manager 4.2.2`) and is en
   requirements.txt` after a Manager update can pull a torch wheel that quietly breaks
   MPS; Desktop also writes snapshots and `backup_branch_*` rollback branches.
 
+## Symptom: the UI half-works over the Tailnet URL but is fine on 127.0.0.1
+
+Saved workflows don't open when clicked; opening a workflow tab throws
+`cannot destructure property 'changeTracker' of '(intermediate value)' as it is
+undefined` and blanks every tab. Only over `https://<node>.<tailnet>.ts.net:8443`,
+never over `http://127.0.0.1:8188`.
+
+It is a **file-descriptor limit**, not a proxy or TLS problem:
+
+- Tailscale Serve terminates TLS with **HTTP/2**. A browser sends the entire page —
+  ~250 subresources — concurrently down that one connection, and the proxy fans those
+  streams out into ~250 upstream connections to ComfyUI. On plain HTTP/1.1 the browser
+  caps itself at 6 connections, which is why localhost never shows it.
+- ComfyUI exceeds its descriptor limit, and **aiohttp reports a failed `open()` as
+  `404`** rather than a 5xx. So existing files — including core frontend chunks like
+  `assets/changeTracker-*.js` — are reported missing, and the app breaks in ways that
+  look like frontend bugs. Which files fail varies per load.
+
+Confirmed by A/B in one browser: over h2 a page load produced 47–56 spurious 404s;
+with `--disable-http2` against the same URL, zero. An isolated aiohttp static server
+returns 241 × 404 for files that exist when hammered with 250 simultaneous requests at
+a 256-fd limit, and 250 × 200 at 4096.
+
+Tells it apart from a real proxy fault: the 404s carry `Server: Python/…/aiohttp`
+(ComfyUI answered), the same URLs return 200 when fetched one at a time through the
+proxy, and `comfyui-daemon.err` logs `OSError: [Errno 24] Too many open files` from
+`socket.accept()`.
+
+```sh
+# Reproduce: 250 concurrent streams on one h2 connection. Want all 200s.
+curl -sk --http2 -Z --parallel-max 250 ...   # or the h2 client in the session notes
+grep -c 'Too many open files' ~/ComfyUI-Installs/comfyui-daemon.err
+```
+
 ## Known-unverified
 
-Whether Metal/MPS works with **no window-server session at all** was not settled at
-setup time — the daemon was confirmed on `mps` while a user was logged in, which does
-not prove the headless case. Test by logging out (not rebooting) and loading the Tailnet
-URL from another device. If it falls back to `cpu` or fails, the fallback plan is
-automatic login plus an agent that immediately locks the screen — a real GUI session,
-screen locked.
+*(resolved 2026-08-26)* Metal/MPS with **no window-server session** was the open
+question here. Verified by logging out of the Mac Studio and driving ComfyUI from
+another device over the Tailnet URL: generation worked, on `mps`. The fallback plan —
+automatic login plus an agent that locks the screen — is not needed.
