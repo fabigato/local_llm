@@ -58,7 +58,10 @@
     }
   },
   "session": {
-    "dmScope": "per-channel-peer"
+    "dmScope": "per-channel-peer",
+    "writeLock": {
+      "acquireTimeoutMs": 240000
+    }
   },
   "tools": {
     "profile": "coding",
@@ -136,7 +139,9 @@
             "promptNodeId": "132",
             "promptInputName": "prompt",
             "inputImageNodeId": "123",
-            "outputNodeId": "77"
+            "outputNodeId": "77",
+            "timeoutMs": 900000,
+            "pollIntervalMs": 3000
           }
         }
       }
@@ -279,7 +284,7 @@
   },
   "meta": {
     "lastTouchedVersion": "2026.5.28",
-    "lastTouchedAt": "2026-08-16T00:39:22.993Z"
+    "lastTouchedAt": "2026-08-30T21:07:04.291Z"
   },
   "commands": {
     "ownerAllowFrom": [
