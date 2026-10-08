@@ -92,6 +92,11 @@ curl -s 127.0.0.1:8188/system_stats | python3 -m json.tool
 - **`SoftResourceLimits: NumberOfFiles 65536`** — launchd's default is **256**, which
   is too low for HTTP/2 clients and shows up as a *broken frontend, not an error*. See
   [Symptom: the UI half-works over the Tailnet URL](#symptom-the-ui-half-works-over-the-tailnet-url-but-is-fine-on-127001).
+- **`--enable-compress-response-body`** — gzips API responses only: ComfyUI's middleware
+  (`server.py`, `compress_body`) compresses `application/json` and `text/plain`, never
+  JS/CSS. Main win is `/api/object_info`, 1.8 MB → 205 KB. Part of the fix for phones
+  sitting on the splash sprite over the Tailnet URL; see
+  [Symptom: splash sprite for minutes](#symptom-splash-sprite-for-minutes-over-the-tailnet-url).
 - **`KeepAlive` + `ThrottleInterval 10`** — also what makes ComfyUI-Manager's
   "Restart" button work: Manager exits the process, launchd returns it ~10s later.
 - **Dropped `--feature-flag show_signin_button=true`** from Desktop's argv; it's a
@@ -166,6 +171,21 @@ proxy, and `comfyui-daemon.err` logs `OSError: [Errno 24] Too many open files` f
 curl -sk --http2 -Z --parallel-max 250 ...   # or the h2 client in the session notes
 grep -c 'Too many open files' ~/ComfyUI-Installs/comfyui-daemon.err
 ```
+
+## Symptom: splash sprite for minutes over the Tailnet URL
+
+The UI loads eventually, but phones/laptops sit on the Comfy splash sprite for minutes.
+The Mac Studio itself is fast even on the Tailnet URL, because Serve traffic to itself
+never leaves the box. It is **page weight**, not a hang: ~470 requests per load.
+
+- The **legacy queue/history menu** loaded recent outputs as full-size PNGs (~2.4 MB
+  each, ~31 MB per load). Fixed by Settings ▸ "Use new menu" ▸ Top.
+- **JS/CSS is never compressed and never cached.** `middleware/cache_middleware.py`
+  sets `Cache-Control: no-store` on every `.js`/`.css` despite hashed filenames, and
+  `--enable-compress-response-body` doesn't touch them. ~18 MB re-downloaded per load.
+
+Measured with headless Chrome: 55.2 MB → 18.7 MB after both changes. curl alone won't
+show it; it only fetches what you tell it to.
 
 ## Known-unverified
 

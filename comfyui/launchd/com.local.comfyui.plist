@@ -26,6 +26,7 @@
         <string>8188</string>
         <string>--enable-manager</string>
         <string>--disable-smart-memory</string>
+        <string>--enable-compress-response-body</string>
         <string>--extra-model-paths-config</string>
         <string>/Users/fabigato/ComfyUI-Installs/comfyui-daemon.model-paths.yaml</string>
         <string>--input-directory</string>
