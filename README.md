@@ -1,5 +1,5 @@
 # Local LLM
-An (almost) fully containerized local llm system, relying on a locally installed ollama and then the rest is all managed by docker.
+An (almost) fully containerized local llm system, relying on a locally installed LM Studio (headless `llmster`, see [llmster/launchd](llmster/launchd/README.md)) and then the rest is all managed by docker. Ollama is still installed and used by Hindsight.
 
 ## Design principles
 - **reproducibility**: docker first approach. Anything that can be configured in docker compose will be configured there, relying on service specific configuration files only when docker compose is impossible or too inconvenient
@@ -17,7 +17,7 @@ Reverse proxy to forward incoming traffic to the exposed services. This handles 
 | --- | --- |
 | `https://chat.${DOMAIN}` | Open WebUI |
 | `https://whisper.${DOMAIN}` | whisper transcription API |
-| `https://llm.${DOMAIN}` | ollama API |
+| `https://llm.${DOMAIN}` | LLM API (LM Studio, OpenAI-compatible) |
 
 Because the cert already covers any subdomain, **adding a service needs no certificate work at all** — write a template, add a DNS record, recreate nginx. `ssl_certificate` is therefore declared once at `http` level in [nginx/nginx.conf](nginx/nginx.conf) and inherited by every server block, rather than repeated per server.
 
@@ -29,11 +29,11 @@ One file per concern, and the numeric prefixes control load order (`include conf
 | Template | Contains |
 | --- | --- |
 | `00-whisper.conf.template` | whisper's http-context bits: bearer `map`, `log_format`, rate-limit zone |
-| `01-ollama.conf.template` | the same for ollama |
+| `01-ollama.conf.template` | the same for the LLM API (Ollama-era name) |
 | `05-default.conf.template` | `:80` → `:443` redirect, plus `default_server` catch-alls |
 | `10-chat.conf.template` | `chat.${DOMAIN}` → Open WebUI |
 | `11-whisper.conf.template` | `whisper.${DOMAIN}` → whisper |
-| `12-llm.conf.template` | `llm.${DOMAIN}` → ollama |
+| `12-llm.conf.template` | `llm.${DOMAIN}` → LM Studio |
 
 Note `nginx.conf` itself is **not** a template — it's mounted verbatim, so it can't reference `${DOMAIN}`. That's why the certificate is issued under the fixed name `wildcard` (`certbot --cert-name wildcard`): it gives `nginx.conf` a domain-independent path to point at.
 
@@ -231,34 +231,33 @@ docker exec openclaw node dist/index.js plugins list | grep -i openai   # "enabl
 ```
 Then send the bot a voice note and watch `docker logs -f openclaw | grep -iE 'media|transcri|audio'`. OGG/Opus (Telegram's format) transcribes fine as long as the Whisper server has ffmpeg.
 
-### Exposing the Ollama API safely
-Same recipe as whisper, applied to ollama — with two ollama-specific twists. Config lives in [nginx/templates/01-ollama.conf.template](nginx/templates/01-ollama.conf.template) (its own `map` → `$ollama_user`, rate-limit zone, and `log_format`) plus the server block in [nginx/templates/12-llm.conf.template](nginx/templates/12-llm.conf.template). Exposed on its own subdomain at the root path:
+### Exposing the LLM API safely
+Same recipe as whisper, applied to the local LLM server. Since 2026-10-12 that's **LM Studio** (`llmster`, see [llmster/launchd](llmster/launchd/README.md)); before that it was Ollama. Config lives in [nginx/templates/01-ollama.conf.template](nginx/templates/01-ollama.conf.template) (its own `map` → `$ollama_user`, rate-limit zone, and `log_format`) plus the server block in [nginx/templates/12-llm.conf.template](nginx/templates/12-llm.conf.template). Exposed on its own subdomain at the root path, OpenAI-compatible:
 ```
-https://llm.<DOMAIN>/       e.g. POST /api/chat, /v1/chat/completions
+https://llm.<DOMAIN>/v1/chat/completions    model: qwen3.8-27b
 ```
-> **Breaking change:** this used to be `https://<domain>/ollama/api/...`. Update any client pointed at the old path.
+> **Breaking change (2026-10-12):** Ollama's native `/api/chat` and `/api/generate` are gone, and model names changed. Point clients at `/v1` with `qwen3.8-27b`.
+
+The file, map, log and zone names still say `ollama` on purpose: renaming them means renaming the `OLLAMA_AUTH_TOKEN*` variables in `.env` and compose too, for no gain. Tokens already handed out keep working.
+
 It reuses the whole whisper security model (per-person bearer tokens → `$ollama_user`, rate limiting with [the same global-not-per-IP caveat](#caveat-the-rate-limit-is-global-not-per-client), per-user access log at `/var/log/nginx/ollama.log`, TLS). The token/multi-token workflow is identical — swap `WHISPER_` for `OLLAMA_` and see [the multi-token section above](#granting-access-to-other-people-multiple-tokens). Two differences from whisper are worth understanding:
 
-**1. Ollama binds to `127.0.0.1` — and that's deliberately left alone.** Ollama listens on `127.0.0.1:11434` (loopback only). You might expect that exposing it means setting `OLLAMA_HOST=0.0.0.0` — **don't.** The containers (open-webui, openclaw, hindsight) already reach it via `host.docker.internal`, which Docker Desktop forwards to the host loopback, and nginx reaches it the same way. Keeping it on loopback means nginx (with its token) is the *only* public door and the raw `11434` port is never exposed on a public interface. This also means exposing ollama through nginx is purely additive: the internal containers keep their existing direct `host.docker.internal:11434` path, untouched — they don't go through nginx or need a token.
+**1. LM Studio binds to `127.0.0.1` — and that's deliberately left alone.** It listens on `127.0.0.1:1234` (loopback only). Don't rebind it to `0.0.0.0`: the containers (open-webui, openclaw) already reach it via `host.docker.internal`, which Docker Desktop forwards to the host loopback, and nginx reaches it the same way. Keeping it on loopback means nginx (with its token) is the *only* public door. Exposing it is purely additive: the containers keep their direct `host.docker.internal:1234` path and don't need a token.
 
-**2. Inference-only: model-management endpoints are blocked.** Unlike whisper's single endpoint, ollama's API includes destructive/management routes (`/api/pull`, `/api/delete`, `/api/create`, `/api/push`, `/api/copy`, `/api/blobs`). A bearer token gates the front door, but to stop a *leaked* token from wiping or bloating your model library, the `location` returns `403` for those paths even with a valid token — inference and read endpoints (`/api/chat`, `/api/generate`, `/api/embed`, `/api/tags`, `/api/show`, `/v1/*`) pass through.
+**2. Inference-only, as an allowlist.** LM Studio's native API (`/api/v0/*`, `/api/v1/*`) includes model **download**, **load** and **unload**. A leaked token must not be able to fill the disk or evict the loaded model, so the `location` returns `403` for anything outside `/v1/` even with a valid token. `/v1/` holds only the OpenAI- and Anthropic-compatible inference endpoints. An allowlist rather than the old Ollama blocklist, because a blocklist silently goes stale when the server adds a route.
 
-  Note the guard is a regex on `$uri`, and moving to a subdomain changed what `$uri` looks like: it's `^/api/(pull|push|...)` now, not `^/ollama/api/(...)`. If you ever reintroduce a path prefix, that regex has to change with it — otherwise it silently stops matching and model management becomes reachable with any valid token. A `403` on `POST /api/pull` is the test worth keeping (it's in the block below).
-
-**Gotcha — ollama returns `403` for everything:** ollama validates the `Host` header (DNS-rebinding protection) and rejects any non-local value. Since nginx would otherwise forward `Host: <your public domain>`, every proxied request comes back `403`. The location fixes this by overriding `proxy_set_header Host "127.0.0.1:11434";` so ollama trusts the request. (Whisper doesn't do this — it doesn't check `Host`.) Also note `proxy_buffering off;` in the location, so streamed tokens flush to the client instead of being buffered.
+The location also overrides `proxy_set_header Host "127.0.0.1:1234";` so the server is only ever addressed as itself (Ollama rejected public `Host` values with `403`; keeping the override costs nothing), and sets `proxy_buffering off;` so streamed tokens flush to the client.
 
 Test it:
 ```
 # inference — 200:
-curl -sk https://llm.<DOMAIN>/api/version -H "Authorization: Bearer <token>"
-curl -sk https://llm.<DOMAIN>/api/generate -H "Authorization: Bearer <token>" \
-  -d '{"model":"<model>","prompt":"say hi"}'
-# chat completions - 200:
+curl -sk https://llm.<DOMAIN>/v1/models -H "Authorization: Bearer <token>"
 curl -sk https://llm.<DOMAIN>/v1/chat/completions -H "Authorization: Bearer <token>" \
-  -d '{"model":"huihui_ai/Qwen3.6-abliterated:35b","messages":[{"role": "system", "content": "be helpful"}, {"role": "user", "content": "tell me a joke"}]}'
-# no/bad token — 401; management endpoint even with a valid token — 403:
-curl -sk https://llm.<DOMAIN>/api/version
-curl -sk -X POST https://llm.<DOMAIN>/api/pull -H "Authorization: Bearer <token>"
+  -H 'Content-Type: application/json' \
+  -d '{"model":"qwen3.8-27b","messages":[{"role": "user", "content": "tell me a joke"}]}'
+# no/bad token — 401; anything outside /v1/ even with a valid token — 403:
+curl -sk https://llm.<DOMAIN>/v1/models
+curl -sk -X POST https://llm.<DOMAIN>/api/v1/models/download -H "Authorization: Bearer <token>"
 # unclaimed subdomain — connection dropped by the :443 catch-all, not Open WebUI:
 curl -sk https://nope.<DOMAIN>/
 ```
@@ -409,10 +408,12 @@ Openclaw can be fully configured in the provided openclaw.json file, that should
 openclaw.json allows for env var substitution. You can add a secret to your local .env, then inject it in docker-compose.yml under openclaw's environment section, and finally call it in openclaw.json.
 For instance, I created TELEGRAM_USER_ID to store the value of my telegram user id, then the TELEGRAM_OWNER variable is defined as telegram:${OPENCLAW_TELEGRAM_USER_ID}, so it can be inyected in openclaw.json inside the "ownerAllowFrom" list
 
-### Connect to local ollama
-Manage Ollama API connections, add
-URL: http://host.docker.internal:11434
-Auth: None
+### Connect to the local LLM (LM Studio)
+Admin Settings → Connections → OpenAI API, add
+URL: http://host.docker.internal:1234/v1
+Auth: None, model IDs: `qwen3.8-27b` (filters out LM Studio's duplicate long key and the embedding model)
+
+The Ollama API connection is disabled since 2026-10-12. The devil35 and q122b personas were recreated as custom models on `qwen3.8-27b`; the original rows (attached to the Ollama model IDs) are still in `webui.db` and come back if the Ollama connection is re-enabled.
 
 ### ComfyUI image generation (and the SSRF "Blocked hostname" gotcha)
 ComfyUI runs on the host, so openclaw (in a container) has to reach it across the container/host boundary. The comfy plugin is configured under `plugins.entries.comfy.config` in openclaw.json with a `baseUrl` and `mode: local`.

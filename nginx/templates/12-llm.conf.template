@@ -1,19 +1,23 @@
-# Ollama API — https://llm.${DOMAIN}
+# LLM API (LM Studio) — https://llm.${DOMAIN}
 #
-# The API is now at the ROOT of its own subdomain:
-#     https://llm.${DOMAIN}/api/chat
-#     https://llm.${DOMAIN}/v1/chat/completions
-# It used to be https://<domain>/ollama/api/... — update any client configured
-# against the old path.
+# OpenAI-compatible, at the ROOT of its own subdomain:
+#     https://llm.${DOMAIN}/v1/chat/completions   (model: qwen3.8-27b)
+#     https://llm.${DOMAIN}/v1/models
+# This used to proxy Ollama (2026-10-12 switch). Ollama's native /api/chat and
+# /api/generate are gone; clients must use the /v1 OpenAI API.
+#
+# The $ollama_user map, `ollama` log format and `ollama` rate-limit zone keep
+# their Ollama-era names on purpose, so the OLLAMA_AUTH_TOKEN* values in .env
+# and every token already handed out keep working.
 #
 # The http-context directives this block depends on — the $ollama_user bearer
 # map, the `ollama` log format, and the `ollama` rate-limit zone — live in
 # 01-ollama.conf.template, which loads first (alphabetical include).
 #
-# Ollama runs on the HOST bound to 127.0.0.1:11434 (loopback only). Keep it that
-# way: containers reach it over host.docker.internal and Docker Desktop forwards
-# to the host loopback, so nginx stays the ONLY public door. Do NOT set
-# OLLAMA_HOST=0.0.0.0 to make this work.
+# LM Studio (llmster, launchd job com.local.llmster) runs on the HOST bound to
+# 127.0.0.1:1234 (loopback only). Keep it that way: containers reach it over
+# host.docker.internal and Docker Desktop forwards to the host loopback, so nginx
+# stays the ONLY public door. Do NOT bind it to 0.0.0.0 to make this work.
 
 server {
     listen 443 ssl;
@@ -48,34 +52,31 @@ server {
         if ($ollama_user = "") {
             return 401;
         }
-        # Block model-management endpoints even for valid tokens: a leaked token
-        # must not be able to delete or bloat your models. Inference/read only.
-        #
-        # NOTE: this pattern lost its /ollama prefix when the API moved to its own
-        # subdomain. $uri is now /api/pull, not /ollama/api/pull — if you ever
-        # reintroduce a path prefix, this regex must change with it or the block
-        # silently stops matching and model management becomes reachable.
-        if ($uri ~* "^/api/(pull|push|delete|create|copy|blobs)") {
+        # Inference/read only, as an ALLOWLIST: everything outside /v1/ is
+        # refused even for valid tokens. LM Studio's native /api/v0 and /api/v1
+        # trees include model download, load and unload, and a leaked token must
+        # not be able to fill the disk or evict the loaded model. /v1/ holds only
+        # the OpenAI- and Anthropic-compatible inference endpoints.
+        if ($uri !~ "^/v1/") {
             return 403;
         }
 
         limit_req zone=ollama burst=20 nodelay;
         access_log /var/log/nginx/ollama.log ollama;
 
-        # No path rewriting now that ollama owns its own hostname: /api/... and
-        # /v1/... pass through untouched. Don't add a trailing slash here.
-        proxy_pass http://host.docker.internal:11434;
+        # No path rewriting: /v1/... passes through untouched. Don't add a
+        # trailing slash here.
+        proxy_pass http://host.docker.internal:1234;
 
         proxy_http_version 1.1;
-        # Ollama validates the Host header (DNS-rebinding guard) and rejects any
-        # non-local value with 403. Present a local Host rather than the public
-        # domain, so it trusts the proxied request.
-        proxy_set_header Host "127.0.0.1:11434";
+        # Present a local Host rather than the public domain: the server only
+        # ever expects to be addressed as itself on loopback.
+        proxy_set_header Host "127.0.0.1:1234";
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
 
-        # Ollama streams tokens; disable buffering so they flush to the client,
+        # Streams tokens; disable buffering so they flush to the client,
         # and allow long generations without nginx timing out.
         proxy_buffering off;
         proxy_read_timeout 3600;

@@ -1,10 +1,9 @@
-# Ollama API — safe internet exposure (same recipe as 00-whisper.conf.template).
+# LLM API (LM Studio) — safe internet exposure (same recipe as 00-whisper.conf.template).
 #
-# Ollama runs on the HOST, bound to 127.0.0.1:11434 (loopback only). That binding
-# is intentional and should stay: the containers (open-webui, openclaw, hindsight)
-# reach it directly over host.docker.internal, and Docker Desktop forwards that to
-# the host loopback — so nginx is the ONLY public door, and the raw port is never
-# exposed on a public interface. Do NOT set OLLAMA_HOST=0.0.0.0 to make this work.
+# The file and the names below ($ollama_user, log format `ollama`, zone `ollama`)
+# date from when this fronted Ollama. Since 2026-10-12 the upstream is LM Studio
+# on 127.0.0.1:1234 (see 12-llm.conf.template); the names stayed so the
+# OLLAMA_AUTH_TOKEN* values in .env and the tokens already handed out keep working.
 #
 # NOTE ON THE "01-" FILENAME PREFIX: like 00-whisper, this loads before
 # 12-llm.conf (alphabetical `include conf.d/*.conf`) so `log_format ollama`
@@ -15,7 +14,7 @@
 # Like 00-whisper, this file holds only the http-context directives; the matching
 # `location /` is in 12-llm.conf.template.
 #
-# Reached publicly at: https://llm.${DOMAIN}/api/chat, /v1/chat/completions
+# Reached publicly at: https://llm.${DOMAIN}/v1/chat/completions
 
 # Bearer-token gate, one line per authorized person (see the whisper file for the
 # full rationale). Value is the person's name; "" = unauthorized. Separate from

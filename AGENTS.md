@@ -8,11 +8,11 @@ A self-hosted local-LLM stack, orchestrated by `docker-compose.yml`. No app code
 - **nginx** `nginx` — reverse proxy / TLS, `80`, `443`
 - **openclaw** `openclaw` — agent gateway (Telegram bot + HTTP API), `18789`, `18790`. Its config lives in `.openclaw/openclaw.json` (mounted, gitignored).
 - **hindsight** `hindsight` — episodic memory engine, `8888`, `9999`
-- LLMs are served by **ollama** running on the host (not a compose service), reached via `host.docker.internal:11434`.
+- LLMs are served by **LM Studio** (`llmster`) running on the host (not a compose service), reached via `host.docker.internal:1234/v1`, model `qwen3.8-27b`. openclaw, open-webui, Hermes and nginx's `llm.` endpoint all use it since 2026-10-12. **Ollama** (`:11434`) is still installed for Hindsight.
 - **ComfyUI** is external too (host `:8188`), used for image generation/editing. See the ComfyUI section in the README.
 
 ## Key facts / gotchas (not obvious from the code)
-- The "agent" that misbehaves in chat is the **local model inside openclaw** (an ollama Qwen), not the host tooling. Don't trust its self-diagnosis — read logs.
+- The "agent" that misbehaves in chat is the **local model inside openclaw** (a local Qwen served by LM Studio), not the host tooling. Don't trust its self-diagnosis — read logs.
 - **comfy config changes need a full `docker restart openclaw`.** Openclaw logs a "hot reload applied" for `plugins.entries.comfy.config.*`, but the comfy provider keeps the old config until restarted.
 - **open-webui env vars in `docker-compose.yml` are seed-only.** Most settings are *PersistentConfig*: stored in `webui.db` and the DB wins at boot, so those vars only take effect on a fresh volume. Change them in the admin UI, not in compose. Never set `ENABLE_PERSISTENT_CONFIG=False` — it makes every boot ignore the DB, which silently wipes UI-only config (ComfyUI image gen, whisper STT) on each restart while env-backed and per-model settings survive. See the README "A note on open webui configuration env vars".
 - **SSRF guard:** openclaw only reaches ComfyUI when `baseUrl` is a *literal private IP* (e.g. `192.168.65.254` on Docker Desktop, `172.17.0.1`-ish on Linux), never `host.docker.internal`. Wired via `OPENCLAW_COMFY_BASE_URL`.
