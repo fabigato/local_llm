@@ -456,44 +456,45 @@ ENABLE_FORWARD_USER_INFO_HEADERS=true
 ## Hindsight
 Advanced episodic memory engine, with knowledge graph. This service provides a memory bank that can be set to different levels of granularity, even per user, per input channel. The knowledge graph and time tags in the memories allow for advanced reasoning. It supports openclaw natively and comes with its own ui
 
-### Why `gemma3:12b` is in ollama
+### Which LLM Hindsight uses, and how often
 
-**Hindsight does not just store text — it runs an LLM over every conversation to extract facts before writing them.** That call is
-configured by `HINDSIGHT_API_LLM_MODEL` in [docker-compose.yml](docker-compose.yml), pointed at host ollama via
-`HINDSIGHT_API_LLM_BASE_URL=http://host.docker.internal:11434/v1`. It is set to `gemma3:12b`: fact extraction runs on *every*
-retain, so it wants a small fast model, not one of the 24–81GB Qwens used for chat.
+**Hindsight does not just store text — it runs an LLM over every retained conversation to extract facts, then a second, much
+bigger *consolidation* call** (observed ~31–61k prompt tokens) that merges them into observations. Recall only reads
+consolidated observations by default (plugin `recallTypes: ["observation"]`), so consolidation can't simply be switched off.
 
-**If that model isn't pulled, memory silently stops working.** Ollama answers `/api/chat` for an unknown model with a `404`, so
-every `batch_retain` task fails:
+Since 2026-10-12 it shares the **one LM Studio instance** the agents use (`HINDSIGHT_API_LLM_PROVIDER=lmstudio`, model
+`qwen3.8-27b`, see [docker-compose.yml](docker-compose.yml)). It used to run `gemma3:12b` in ollama, and that was the main source
+of model thrashing: ollama loaded gemma with a 131k context (**~52 GB** predicted), which evicted the chat model on every retain
+(`llama-server model predicted to exceed available memory, evicting`), and the chat model then had to reload. One shared instance
+means nothing to evict. The instance has 4 parallel slots; `HINDSIGHT_API_LLM_MAX_CONCURRENT=2` keeps background work from taking
+all of them, and `HINDSIGHT_API_LLM_TIMEOUT=900` because the 120s default is too short for a 60k-token prompt on a dense 27B.
 
-```
-ERROR - Ollama HTTP error after 4 attempts: Client error '404 Not Found' for url 'http://host.docker.internal:11434/api/chat'
-ERROR - Task execution failed: batch_retain, error: Fact extraction failed: 1/1 chunks failed
-```
+**Retain frequency is throttled in the openclaw plugin** (`plugins.entries.hindsight-openclaw.config`):
+- `retainEveryNTurns: 5` + `retainOverlapTurns: 1` — retain a 6-turn window every 5th turn instead of every turn. Each retain
+  queues a consolidation, so this cuts LLM work ~5×. Before, two Telegram messages produced ~6 retains + 5 consolidations
+  (2–4.5 min each) within 20 minutes.
+- `excludeProviders: ["heartbeat", "webchat"]` — openclaw runs inter-session turns (`sessions_send`, subagent wakes, media
+  completions) on its internal channel, `INTERNAL_MESSAGE_CHANNEL = "webchat"`. Those turns arrive without a `channelId`, so the
+  plugin derived the bank from the session key and wrote them to a **second bank** (`main::direct%3A<id>::<id>`) next to the real
+  one (`main::<id>::<id>`). They duplicate what's already in the session context, so they're excluded from retain and recall.
+  Side effect: chats in openclaw's own web Control UI aren't retained either. The stray bank was deleted.
 
-This is nasty to spot from the outside, because **recall keeps working while retain is dead.** The bot still answers with
-injected memories (`injecting 43 memories into context`) — those are old ones — so from Telegram it looks perfectly healthy while
-nothing new is being written. It ran that way for over a week. If memory ever seems frozen in the past, check
-`docker logs hindsight | grep ERROR` before anything else.
+**If retain silently fails, memory freezes while recall keeps working**: the bot still injects old memories
+(`injecting 43 memories into context`), so it looks healthy from Telegram. This happened once for over a week, when the
+configured model wasn't available. If memory ever seems stuck in the past, check `docker logs hindsight | grep ERROR` first.
 
-```bash
-ollama pull gemma3:12b     # required — fact extraction, every retain
-ollama pull bge-m3         # see below — currently inert
-```
+### Embeddings are local, not ollama
 
-### Why `bge-m3` is in ollama (and why it does nothing right now)
+Hindsight embeds and reranks in-container on CPU: `BAAI/bge-small-en-v1.5` (**384** dimensions) and
+`cross-encoder/ms-marco-MiniLM-L-6-v2`. The compose file used to set `HINDSIGHT_API_EMBEDDING_PROVIDER=ollama` / `bge-m3`, but the
+real variables are `HINDSIGHT_API_EMBEDDINGS_*` — **plural** — so those lines were silently ignored (startup logs
+`Embeddings: provider=local`). They were removed. `bge-m3` is 1024-dim, so switching would mean re-embedding the whole bank.
 
-The compose file sets `HINDSIGHT_API_EMBEDDING_PROVIDER=ollama` and `HINDSIGHT_API_EMBEDDING_MODEL=bge-m3`, **but Hindsight
-ignores both.** It logs `Embeddings: provider=local` at startup and uses its own bundled embedder, which is why recall kept
-working (50–280ms per query embedding) the whole time fact extraction was failing.
+### `/dev/shm` must be bigger than Docker's 64 MB
 
-The bundled embedder is `BAAI/bge-small-en-v1.5` at **384 dimensions**, on CPU. `bge-m3` is **1024** dimensions, so this isn't
-just a different name for the same thing — the stored vectors are a different shape entirely. Switching providers later would
-mean re-embedding the whole bank, not just flipping the env var.
-
-So `bge-m3` is pulled and ready, but **not currently on the path** — it's staged for if we ever switch embeddings to ollama, and
-it's why those two compose vars aren't doing what they look like they're doing. Don't be misled into thinking a missing `bge-m3`
-could explain a recall problem; it can't, in the current configuration.
+The embedded Postgres (pg0) allocates parallel-query segments in `/dev/shm`. At the default 64 MB, a retain failed with
+`could not resize shared memory segment "/PostgreSQL.…" to 533794976 bytes: No space left on device`. Compose sets
+`shm_size: 1g`.
 
 ### Why the image tag is pinned to `0.9.1` (session-scoped memory)
 
@@ -536,14 +537,12 @@ data loss. 0.9.1 also adds `document_export_api`, `document_import_api`, `audit_
 
 To upgrade in future, bump the pin deliberately and watch the first boot for `Database migrations completed successfully`.
 
-### `llmBaseUrl` in the openclaw plugin config
+### No LLM settings in the openclaw plugin config
 
-`plugins.entries.hindsight-openclaw.config.llmBaseUrl` used to read `http://ollama:11434/v1`. **There is no `ollama` container** —
-ollama runs on the host (see the note above about it staying on `127.0.0.1`), so that hostname is `ENOTFOUND` from inside the
-network. Corrected to `http://host.docker.internal:11434/v1`, matching what every other service here uses.
-
-It was dormant rather than fatal: the plugin runs in external-API mode and delegates to the `hindsight` container, so it never
-dialled that URL. It would have broken the moment the plugin was switched to embedded mode.
+`plugins.entries.hindsight-openclaw.config` has no `llmProvider`/`llmModel`/`llmBaseUrl`, on purpose. With `hindsightApiUrl` set
+the plugin runs in external-API mode, and its `detectLLMConfig` discards them (`source: "external-api-mode-no-llm"`): every LLM
+call is made by the `hindsight` container with *its* `HINDSIGHT_API_LLM_*` settings. They used to point at a different model
+than the container's, which looked like two models doing memory work. Only one ever was. Set the model in compose, not here.
 
 # Secret management
 put your secrets in a local .env file on the project root. An .env.example file is provided as guide. Whatever you put in there will be inyected on docker compose

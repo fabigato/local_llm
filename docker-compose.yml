@@ -180,6 +180,10 @@ services:
     image: ghcr.io/vectorize-io/hindsight:0.9.1
     container_name: hindsight
     restart: always
+    # Embedded Postgres (pg0) allocates parallel-query segments in /dev/shm; at
+    # Docker's 64MB default a retain failed with "could not resize shared memory
+    # segment ... to 533794976 bytes: No space left on device".
+    shm_size: 1g
     ports:
       - "8888:8888"
       - "9999:9999"
@@ -191,13 +195,22 @@ services:
     volumes:
       - hindsight_data:/home/hindsight/.pg0
     environment:
-      HINDSIGHT_API_LLM_PROVIDER: ollama
-      HINDSIGHT_API_LLM_BASE_URL: http://host.docker.internal:11434/v1
-      HINDSIGHT_API_LLM_MODEL: gemma3:12b
+      # Shares the single LM Studio instance the agents use (no second model to
+      # evict anything). That instance has 4 parallel slots; cap Hindsight at 2
+      # so background retain/consolidation never queues in front of a chat turn.
+      # Consolidation prompts reach ~60k tokens on a dense 27B, so the 120s
+      # default timeout is too short.
+      HINDSIGHT_API_LLM_PROVIDER: lmstudio
+      HINDSIGHT_API_LLM_BASE_URL: http://host.docker.internal:1234/v1
+      HINDSIGHT_API_LLM_MODEL: qwen3.8-27b
+      HINDSIGHT_API_LLM_MAX_CONCURRENT: 2
+      HINDSIGHT_API_LLM_TIMEOUT: 900
 
-      HINDSIGHT_API_EMBEDDING_PROVIDER: ollama
-      HINDSIGHT_API_EMBEDDING_BASE_URL: http://host.docker.internal:11434
-      HINDSIGHT_API_EMBEDDING_MODEL: bge-m3
+      # Embeddings + reranker run in-container on CPU (defaults: local
+      # BAAI/bge-small-en-v1.5, 384-dim). The bank's vectors were built with it,
+      # so don't switch providers without re-embedding. (The vars are
+      # HINDSIGHT_API_EMBEDDINGS_* — plural; an earlier singular
+      # EMBEDDING_* ollama/bge-m3 block here was silently ignored.)
 
     networks:
       - ai-network

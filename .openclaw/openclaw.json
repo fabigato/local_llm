@@ -3,10 +3,10 @@
     "defaults": {
       "workspace": "/home/node/.openclaw/workspace",
       "model": {
-        "primary": "ollama/charaf/Huihui-Qwen3.6-35B-A3B-abliterated-mlx:instruct"
+        "primary": "lmstudio/qwen3.8-27b"
       },
       "models": {
-        "ollama/charaf/Huihui-Qwen3.6-35B-A3B-abliterated-mlx:instruct": {},
+        "lmstudio/qwen3.8-27b": {},
         "imageGenerationModel": {}
       },
       "imageGenerationModel": {
@@ -116,9 +116,12 @@
         },
         "config": {
           "hindsightApiUrl": "http://hindsight:8888",
-          "llmProvider": "openai",
-          "llmModel": "charaf/Huihui-Qwen3.6-35B-A3B-abliterated-mlx:instruct",
-          "llmBaseUrl": "http://host.docker.internal:11434/v1"
+          "retainEveryNTurns": 5,
+          "retainOverlapTurns": 1,
+          "excludeProviders": [
+            "heartbeat",
+            "webchat"
+          ]
         }
       },
       "duckduckgo": {
@@ -160,6 +163,37 @@
     "providers": {
       "openai": {
         "apiKey": "${OPENAI_API_KEY}"
+      },
+      "lmstudio": {
+        "baseUrl": "http://host.docker.internal:1234/v1",
+        "apiKey": "lmstudio-local",
+        "api": "openai-completions",
+        "params": {
+          "preload": false
+        },
+        "models": [
+          {
+            "id": "qwen3.8-27b",
+            "name": "Qwen3.8 27B Huihui abliterated (LM Studio)",
+            "reasoning": true,
+            "input": [
+              "text",
+              "image"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 65536,
+            "maxTokens": 32768,
+            "compat": {
+              "supportsTools": true,
+              "supportsUsageInStreaming": true
+            }
+          }
+        ]
       },
       "ollama": {
         "baseUrl": "http://host.docker.internal:11434",
@@ -284,7 +318,7 @@
   },
   "meta": {
     "lastTouchedVersion": "2026.5.28",
-    "lastTouchedAt": "2026-08-30T21:07:04.291Z"
+    "lastTouchedAt": "2026-10-11T22:41:27.324Z"
   },
   "commands": {
     "ownerAllowFrom": [
