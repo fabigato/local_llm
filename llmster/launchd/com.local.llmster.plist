@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.local.llmster</string>
+
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/sbin/llmster-server.sh</string>
+	</array>
+
+	<!-- A LaunchDaemon so it's up at boot with nobody logged in (same reason as
+	     local.jellyfin). Runs as fabigato because the models, settings and
+	     llmster binary all live in ~/.lmstudio; root would create root-owned
+	     files in there and break `lms` from the terminal. -->
+	<key>UserName</key>
+	<string>fabigato</string>
+	<key>GroupName</key>
+	<string>staff</string>
+
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>30</integer>
+
+	<!-- Idle most of the time, needs the GPU flat out when a request lands. -->
+	<key>ProcessType</key>
+	<string>Adaptive</string>
+
+	<key>SoftResourceLimits</key>
+	<dict>
+		<key>NumberOfFiles</key>
+		<integer>4096</integer>
+	</dict>
+
+	<!-- Unloading a ~24 GB model and closing the server takes a few seconds;
+	     give it room before launchd escalates to SIGKILL. -->
+	<key>ExitTimeOut</key>
+	<integer>60</integer>
+
+	<!-- llmster's console is chatty at DEBUG; the wrapper's own messages go to
+	     /var/log/llmster-server.log. Both rotated by llmster.newsyslog.conf. -->
+	<key>StandardOutPath</key>
+	<string>/var/log/llmster-server.launchd.log</string>
+	<key>StandardErrorPath</key>
+	<string>/var/log/llmster-server.launchd.log</string>
+</dict>
+</plist>
