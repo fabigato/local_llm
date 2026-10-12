@@ -67,7 +67,7 @@
     "profile": "coding",
     "web": {
       "search": {
-        "provider": "duckduckgo"
+        "provider": "brave"
       }
     },
     "media": {
@@ -92,8 +92,9 @@
   },
   "plugins": {
     "allow": [
-      "hindsight-openclaw",
+      "brave",
       "comfy",
+      "hindsight-openclaw",
       "openai"
     ],
     "slots": {
@@ -124,14 +125,6 @@
           ]
         }
       },
-      "duckduckgo": {
-        "config": {
-          "webSearch": {
-            "region": "nl-nl",
-            "safeSearch": "off"
-          }
-        }
-      },
       "comfy": {
         "enabled": true,
         "config": {
@@ -147,6 +140,9 @@
             "pollIntervalMs": 3000
           }
         }
+      },
+      "brave": {
+        "enabled": true
       }
     }
   },
@@ -318,7 +314,7 @@
   },
   "meta": {
     "lastTouchedVersion": "2026.5.28",
-    "lastTouchedAt": "2026-10-11T22:41:27.324Z"
+    "lastTouchedAt": "2026-10-12T23:12:57.235Z"
   },
   "commands": {
     "ownerAllowFrom": [

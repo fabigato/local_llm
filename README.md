@@ -408,6 +408,22 @@ Openclaw can be fully configured in the provided openclaw.json file, that should
 openclaw.json allows for env var substitution. You can add a secret to your local .env, then inject it in docker-compose.yml under openclaw's environment section, and finally call it in openclaw.json.
 For instance, I created TELEGRAM_USER_ID to store the value of my telegram user id, then the TELEGRAM_OWNER variable is defined as telegram:${OPENCLAW_TELEGRAM_USER_ID}, so it can be inyected in openclaw.json inside the "ownerAllowFrom" list
 
+### Web search (Brave) and fetch
+`web_search` uses Brave (`tools.web.search.provider: "brave"`) since 2026-10-13; it was DuckDuckGo before, which has no API and scrapes result pages, so it's the first to get rate-limited or captcha'd. It's the same Brave account as Open WebUI and Hermes: compose passes `BRAVE_SEARCH_API_KEY` from `.env` into the container as `BRAVE_API_KEY`, the name OpenClaw reads.
+
+Brave is **not bundled** in the image, unlike DuckDuckGo. It's the official npm plugin `@openclaw/brave-plugin`, installed into the mounted `.openclaw/npm/` (so it survives a recreate):
+```bash
+docker exec openclaw node dist/index.js plugins install @openclaw/brave-plugin   # picks the newest version compatible with the runtime
+```
+That also adds `brave` to `plugins.allow` and `plugins.entries`. If the plugin is missing while the provider says `brave`, the config is invalid (`web_search provider is not available: brave`) and the container **crash-loops**. The compose bootstrap only reinstalls hindsight, so after wiping `.openclaw/npm/` or upgrading OpenClaw, reinstall Brave too (or set the provider back to `duckduckgo`).
+
+Check it:
+```bash
+docker exec openclaw node dist/index.js infer web search --query "test"   # "provider: brave"
+```
+
+`web_fetch` needs no key: the agent tool downloads the page itself and extracts it with Readability. `infer web fetch` on the CLI only uses fetch *providers* (Firecrawl etc.), so "web.fetch is disabled or no provider is available" there doesn't mean the agent can't fetch.
+
 ### Connect to the local LLM (LM Studio)
 Admin Settings → Connections → OpenAI API, add
 URL: http://host.docker.internal:1234/v1

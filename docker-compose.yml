@@ -148,6 +148,10 @@ services:
       DOMAIN: ${DOMAIN}
       WHISPER_AUTH_TOKEN: ${WHISPER_AUTH_TOKEN}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      # Web search: tools.web.search.provider is "brave". OpenClaw reads its key from
+      # BRAVE_API_KEY; it's the same Brave account Open WebUI and Hermes use, so it is
+      # fed from BRAVE_SEARCH_API_KEY rather than a second var in .env.
+      BRAVE_API_KEY: ${BRAVE_SEARCH_API_KEY}
 
       # Tell OpenClaw to look inside our baked-in system directory for extensions
       OPENCLAW_PLUGINS_PATH: /usr/share/openclaw/extensions

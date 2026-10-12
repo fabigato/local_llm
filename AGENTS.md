@@ -6,7 +6,7 @@ Guidance for AI agents working in this repo. Keep it lean; the [README](README.m
 A self-hosted local-LLM stack, orchestrated by `docker-compose.yml`. No app code — it's config, workflows, and docs. Services (container : host→container ports):
 - **open-webui** `open-webui` — chat UI, `3000:8080`
 - **nginx** `nginx` — reverse proxy / TLS, `80`, `443`
-- **openclaw** `openclaw` — agent gateway (Telegram bot + HTTP API), `18789`, `18790`. Its config lives in `.openclaw/openclaw.json` (mounted, gitignored).
+- **openclaw** `openclaw` — agent gateway (Telegram bot + HTTP API), `18789`, `18790`. Its config lives in `.openclaw/openclaw.json` (mounted and committed; the rest of `.openclaw/` except `workflows/` is gitignored). Web search is Brave via the npm plugin `@openclaw/brave-plugin`, which isn't bundled: if it's missing, the config is invalid and the container crash-loops. See the README "Web search (Brave) and fetch".
 - **hindsight** `hindsight` — episodic memory engine, `8888`, `9999`
 - LLMs are served by **LM Studio** (`llmster`) running on the host (not a compose service), reached via `host.docker.internal:1234/v1`, model `qwen3.8-27b`. openclaw, open-webui, Hermes and nginx's `llm.` endpoint all use it since 2026-10-12. Hindsight uses it too (since 2026-10-12, via compose `HINDSIGHT_API_LLM_*`), so **no compose service depends on Ollama** (`:11434`) anymore.
 - **ComfyUI** is external too (host `:8188`), used for image generation/editing. See the ComfyUI section in the README.
