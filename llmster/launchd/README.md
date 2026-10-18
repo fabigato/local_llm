@@ -103,7 +103,8 @@ lms unload qwen3.8-27b
 lms load qwen3.8-27b-huihui-abliterated-oq6e-mtp-mlx --identifier qwen3.8-27b -c 262144 -y
 ```
 
-Output caps per client, all 32768: openclaw `maxTokens` in
-`.openclaw/openclaw.json`, Hermes `model.max_tokens` in `~/.hermes/config.yaml`,
-Hindsight's `*_MAX_COMPLETION_TOKENS` in compose, Open WebUI's Max Tokens in the
-model's Advanced Params.
+Output caps per client: openclaw `maxTokens` in `.openclaw/openclaw.json`
+(32768), Hindsight's `*_MAX_COMPLETION_TOKENS` in compose (32768), Hermes
+`providers.lm-studio.extra_body.max_tokens` in `~/.hermes/config.yaml` (32768;
+Hermes ignores `model.max_tokens`), Open WebUI's Max Tokens in the model's
+Advanced Params (64554).
