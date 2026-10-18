@@ -1,0 +1,34 @@
+--- a/chat_template.jinja
++++ b/chat_template.jinja
+@@ -44,7 +44,30 @@
+ {%- endif %}
+ {%- set reasoning_instructions = '' %}
+ {%- if enable_thinking is undefined or enable_thinking is true %}
+-    {%- set resolved_reasoning_effort = reasoning_effort|default('xhigh') %}
++    {#- Local edit: a standalone /low or /xhigh word in the last user message picks the effort; otherwise medium. Original in chat_template.jinja.orig #}
++    {%- set effort_ns = namespace(text='') %}
++    {%- for m in messages %}
++        {%- if m.role == 'user' %}
++            {%- if m.content is string %}
++                {%- set effort_ns.text = m.content %}
++            {%- else %}
++                {%- set effort_ns.text = '' %}
++                {%- for part in m.content %}
++                    {%- if part.text is defined %}
++                        {%- set effort_ns.text = effort_ns.text ~ ' ' ~ part.text %}
++                    {%- endif %}
++                {%- endfor %}
++            {%- endif %}
++        {%- endif %}
++    {%- endfor %}
++    {%- set effort_words = effort_ns.text.split() %}
++    {%- if '/xhigh' in effort_words %}
++        {%- set resolved_reasoning_effort = 'xhigh' %}
++    {%- elif '/low' in effort_words %}
++        {%- set resolved_reasoning_effort = 'low' %}
++    {%- else %}
++        {%- set resolved_reasoning_effort = reasoning_effort|default('medium') %}
++    {%- endif %}
+     {%- if resolved_reasoning_effort not in ('xhigh', 'medium', 'low') %}
+         {{- raise_exception('Unexpected reasoning effort ' ~ reasoning_effort ~ '. Supported types are xhigh (default), medium, and low.') }}
+     {%- endif %}

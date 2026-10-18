@@ -209,6 +209,13 @@ services:
       HINDSIGHT_API_LLM_MODEL: qwen3.8-27b
       HINDSIGHT_API_LLM_MAX_CONCURRENT: 2
       HINDSIGHT_API_LLM_TIMEOUT: 900
+      # Output caps, thinking included, same 32k as the agents. Defaults are
+      # 64000 for retain and none for consolidation/reflect, so a model stuck
+      # thinking ran until the 262k context filled. Retain must stay above
+      # HINDSIGHT_API_RETAIN_CHUNK_SIZE (3000).
+      HINDSIGHT_API_RETAIN_MAX_COMPLETION_TOKENS: 32768
+      HINDSIGHT_API_CONSOLIDATION_MAX_COMPLETION_TOKENS: 32768
+      HINDSIGHT_API_REFLECT_MAX_COMPLETION_TOKENS: 32768
 
       # Embeddings + reranker run in-container on CPU (defaults: local
       # BAAI/bge-small-en-v1.5, 384-dim). The bank's vectors were built with it,

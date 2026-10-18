@@ -74,3 +74,36 @@ llmster version on its own.
 
 `lms` commands from your terminal (`ls`, `ps`, `get`, `load`, `unload`) talk to
 the daemon's llmster as normal.
+
+## Reasoning effort and the chat template patch
+
+The model's own `chat_template.jinja` defaults `reasoning_effort` to `xhigh`,
+and LM Studio can't pass a client's `reasoning_effort` through to it (the log
+says `No valid custom reasoning fields found … Reasoning setting 'medium' cannot
+be converted`). So every request ran at `xhigh` no matter what Hermes or
+Open WebUI asked for. Combined with clients that sent no `max_tokens`, one story
+prompt thought for 12.5 hours on 2026-10-16 until the client gave up.
+
+The effort level is only a sentence the template puts at the top of the system
+prompt (`xhigh`: think carefully…; `low`: keep thinking brief…; `medium`:
+nothing). It steers; it doesn't cap. The hard stop is each client's
+`max_tokens`, which counts thinking too.
+
+[qwen3.8-chat-template.patch](../qwen3.8-chat-template.patch) changes the
+default to `medium` and lets a standalone `/low` or `/xhigh` word in the last
+user message pick the level, in any client. Re-apply it after re-downloading
+the model:
+
+```sh
+cd ~/.lmstudio/models/KostkaIT/Qwen3.8-27B-Huihui-Abliterated-oQ6e-MTP-MLX
+cp -p chat_template.jinja chat_template.jinja.orig
+patch chat_template.jinja ~/repos/local_llm/llmster/qwen3.8-chat-template.patch
+# the template is read at load time
+lms unload qwen3.8-27b
+lms load qwen3.8-27b-huihui-abliterated-oq6e-mtp-mlx --identifier qwen3.8-27b -c 262144 -y
+```
+
+Output caps per client, all 32768: openclaw `maxTokens` in
+`.openclaw/openclaw.json`, Hermes `model.max_tokens` in `~/.hermes/config.yaml`,
+Hindsight's `*_MAX_COMPLETION_TOKENS` in compose, Open WebUI's Max Tokens in the
+model's Advanced Params.

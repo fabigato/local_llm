@@ -484,6 +484,8 @@ of model thrashing: ollama loaded gemma with a 131k context (**~52 GB** predicte
 (`llama-server model predicted to exceed available memory, evicting`), and the chat model then had to reload. One shared instance
 means nothing to evict. The instance has 4 parallel slots; `HINDSIGHT_API_LLM_MAX_CONCURRENT=2` keeps background work from taking
 all of them, and `HINDSIGHT_API_LLM_TIMEOUT=900` because the 120s default is too short for a 60k-token prompt on a dense 27B.
+Since 2026-10-18 its output is capped at 32768 tokens per call (`HINDSIGHT_API_{RETAIN,CONSOLIDATION,REFLECT}_MAX_COMPLETION_TOKENS`),
+like the agents. Unset, retain sent 64000 and consolidation/reflect sent no cap, so they could think until the 262k context filled.
 
 **Retain frequency is throttled in the openclaw plugin** (`plugins.entries.hindsight-openclaw.config`):
 - `retainEveryNTurns: 5` + `retainOverlapTurns: 1` — retain a 6-turn window every 5th turn instead of every turn. Each retain
