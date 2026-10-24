@@ -276,6 +276,9 @@ Note this **doesn't weaken security**: CORS was never protecting this API — th
 ## Open WebUI
 Interface managing multi tenancy, login, chat history and agentic tooling
 
+### Updating
+The image is pinned to a release tag (not `:main`) because upgrades run one-way DB migrations. To update: `docker stop open-webui`, back up the volume (`docker run --rm -v local_llm_open-webui:/data:ro -v ~/backups/open-webui:/backup alpine tar czf /backup/owui-<version>.tgz -C /data .`), bump the tag in `docker-compose.yml` to the latest [release](https://github.com/open-webui/open-webui/releases) (skim its "Changed" notes for renamed env vars), then `docker compose up -d open-webui` and watch `docker logs -f open-webui` for the migrations. Never update inside the container; rollback = old tag + restore the backup.
+
 ### A note on open webui configuration env vars
 
 Open webui settings are sql db first. You could setup add OLLAMA_BASE_URL=http://host.docker.internal:11434 or OPENAI_API_BASE_URL=http://openclaw:18789/v1 to the container environment variables but if you setup up a connection to a different llm in the ui, that will get saved in the litesql db and will take precedence over env vars. The db has user specific settings you don't want to commit, so commiting the db is not a good approach. Therefore, whatever changes you do in the ui will not be part of the containerized application and will have to be changed there in place. Environment variables are given prefence where pragmatic, [here's a list of supported variables](https://docs.openwebui.com/reference/env-configuration/).
