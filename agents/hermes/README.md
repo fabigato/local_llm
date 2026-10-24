@@ -26,7 +26,6 @@ The dashboard is the browser counterpart of the Hermes app. **Chat** runs the fu
 | `hermes-friend` | Gateway (Telegram) and dashboard, supervised by s6. | `agent` only (internal, no route out) |
 | `hermes-friend-egress` | Squid proxy. Hermes' only way out. | `agent` + `edge` |
 | `hermes-friend-dashboard` | socat forwarder that publishes the dashboard on `127.0.0.1:9120`. | `agent` + `edge` |
-| `hermes-friend-backup` | Runs `hermes backup` into `./backups` at start, then every N hours. | none |
 | `hermes-friend-seed` | One-shot: copies `config/*` into the data volume, then exits `0`. | none |
 
 ## Files
@@ -39,7 +38,6 @@ The dashboard is the browser counterpart of the Hermes app. **Chat** runs the fu
 | `egress/squid.conf` | Egress policy: public internet yes; this Mac, LAN and tailnet no. | yes |
 | `.env` | Secrets: Venice key, bot token, allowed users, dashboard login. | **no** |
 | `.env.example` | Template for `.env`. | yes |
-| `backups/` | Backup zips. They contain the friend's full history **and** Hermes' own `.env`. | **no** |
 
 ## First-time setup
 
@@ -103,21 +101,35 @@ It is **lost** only by:
 - `docker volume rm` / `docker volume prune`
 - Docker Desktop's *Clean / Purge data* or *Reset to factory defaults*, or uninstalling Docker Desktop
 
-Backups cover those cases. The `backup` container runs `hermes backup` (consistent SQLite snapshots) when it starts and then every `HERMES_BACKUP_INTERVAL_HOURS` (default 24). It writes `backups/hermes-backup-<timestamp>.zip` and keeps the newest `HERMES_BACKUP_KEEP` (default 14). `backups/` is an ordinary folder on your Mac, so Time Machine picks it up too.
+Backups cover those cases. The friend's agent is backed up to the NAS by the same nightly job as your other Hermes agents: [`hermes-backup.sh`](../../../nas/scripts/hermes-backup/README.md) in `~/repos/nas`, at 01:00. It exports the volume through a throwaway container (no network), then gives it the same treatment as the others:
 
-Take a backup right now:
+- It copies only the agent (config, `.env`, SOUL, memories, skills, chat history in `state.db`), with consistent SQLite snapshots.
+- A night with no changes writes nothing.
+- It refuses to overwrite a good copy with a blank or reset agent.
+- Failures alert on Discord, including when Docker Desktop isn't running at 01:00.
+
+The copy is in `/Volumes/tank/documents/hermes/containers/hermes-friend/current`. Older versions come from tank's snapshots (7 daily, 4 weekly, 6 monthly) and the off-site copy. The job works while the stack is down too, as long as Docker Desktop runs.
+
+Check the last copy:
 
 ```bash
-docker compose run --rm --no-deps --entrypoint /opt/hermes/.venv/bin/hermes backup backup -o /backups
+cat /Volumes/tank/documents/hermes/containers/hermes-friend/current/MANIFEST
 ```
 
-Restore one. This overwrites current state with the zip's contents:
+Restore. This overwrites the volume's copies of those files. Pick `current` or a snapshot under `/Volumes/tank/documents/.zfs/snapshot/*/hermes/containers/hermes-friend/current`:
 
 ```bash
-docker compose stop hermes backup
-docker compose run --rm --no-deps --entrypoint /opt/hermes/.venv/bin/hermes backup import --force /backups/hermes-backup-<timestamp>.zip
+cd ~/repos/local_llm/agents/hermes
+docker compose down
+docker run --rm --network none --user 0:0 -v hermes-friend_hermes-data:/opt/data \
+  -v /Volumes/tank/documents/hermes/containers/hermes-friend/current:/restore:ro \
+  --entrypoint sh nousresearch/hermes-agent:v0.22.5 -c \
+  'find /opt/data -maxdepth 2 \( -name "*.db-wal" -o -name "*.db-shm" \) -delete &&
+   cd /restore && tar -cf - --exclude=MANIFEST . | tar -xf - -C /opt/data && chown -R 10000:10000 /opt/data'
 docker compose up -d
 ```
+
+Use the image tag from the copy's MANIFEST. The `find … -delete` matters: a leftover `state.db-wal` from the old database would be replayed into the restored one and corrupt it.
 
 Why a named volume and not a folder here: on Docker Desktop for Mac, bind mounts use virtiofs. There Hermes can't set its gateway socket to mode 600, so local chat refuses to connect, and SQLite in WAL mode can corrupt `state.db`.
 

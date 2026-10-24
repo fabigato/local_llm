@@ -118,33 +118,5 @@ services:
       - "127.0.0.1:${HERMES_DASHBOARD_HOST_PORT:-9120}:9119"
     command: ["TCP-LISTEN:9119,fork,reuseaddr", "TCP:hermes:9119"]
 
-  # `hermes backup` (WAL-safe SQLite snapshots + everything else in /opt/data)
-  # into ./backups on the host, at start and then every N hours, keeping the
-  # newest HERMES_BACKUP_KEEP zips. No network at all.
-  backup:
-    image: *image
-    container_name: hermes-friend-backup
-    restart: unless-stopped
-    user: "10000:10000"
-    network_mode: none
-    depends_on:
-      - hermes
-    entrypoint: ["sh", "-c"]
-    command:
-      - |
-        sleep 60
-        while true; do
-          /opt/hermes/.venv/bin/hermes backup -o /backups -k "$${HERMES_BACKUP_KEEP}" \
-            || echo "backup failed" >&2
-          sleep $$(( HERMES_BACKUP_INTERVAL_HOURS * 3600 ))
-        done
-    environment:
-      HERMES_HOME: /opt/data
-      HERMES_BACKUP_KEEP: ${HERMES_BACKUP_KEEP:-14}
-      HERMES_BACKUP_INTERVAL_HOURS: ${HERMES_BACKUP_INTERVAL_HOURS:-24}
-    volumes:
-      - hermes-data:/opt/data
-      - ./backups:/backups
-
 volumes:
   hermes-data:
