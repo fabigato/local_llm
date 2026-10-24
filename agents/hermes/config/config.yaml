@@ -1,0 +1,31 @@
+# Hermes config for the friend container. Source of truth: the `seed` service
+# copies it to /opt/data/config.yaml on every `docker compose up`, so edit it
+# here — changes made in the dashboard's Config page are lost on the next up.
+# Keys not set here use Hermes defaults.
+model:
+  default: e2ee-kimi-k2-6
+  provider: venice
+  base_url: https://api.venice.ai/api/v1
+providers:
+  # Same provider block as the host's tezcatlipoca profile. The key comes from
+  # VENICE_API_KEY in ./.env (compose maps it to this key_env name).
+  venice:
+    name: Venice AI
+    base_url: https://api.venice.ai/api/v1
+    key_env: HERMES_CUSTOM_API_VENICE_AI_API_KEY
+    model: e2ee-kimi-k2-6
+    api_mode: chat_completions
+    discover_models: false
+    models:
+      e2ee-kimi-k2-6:
+        context_length: 262144
+agent:
+  reasoning_effort: medium
+terminal:
+  # Runs tool commands inside this container, not on the host.
+  backend: local
+web:
+  backend: brave-free
+memory:
+  memory_enabled: true
+  user_profile_enabled: true

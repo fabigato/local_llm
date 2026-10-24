@@ -1,0 +1,3 @@
+.env
+# hermes backup zips: the friend's full history plus Hermes' own .env (secrets).
+backups/

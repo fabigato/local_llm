@@ -1,0 +1,150 @@
+# Standalone Hermes Agent for a friend: Telegram bot + web dashboard.
+# Separate from the repo-root docker-compose.yml on purpose — run it from this
+# directory (see README.md). Secrets come from ./.env (see .env.example).
+#
+# Network layout: `hermes` is ONLY on the internal `agent` network, which has no
+# route anywhere. Its single way out is the `egress` Squid proxy, which allows
+# the public internet and refuses this Mac, the LAN and the tailnet (see
+# egress/squid.conf). `dashboard` is a plain TCP forwarder that publishes the
+# dashboard on 127.0.0.1, since Docker can't publish ports from an internal network.
+name: hermes-friend
+
+x-image: &image nousresearch/hermes-agent:${HERMES_IMAGE_TAG:-v0.22.5}
+
+networks:
+  agent:
+    internal: true
+  edge:
+
+services:
+  # One-shot: copies ./config/* (config.yaml, optional SOUL.md) into the data
+  # volume before Hermes starts, so the files in this repo are the source of
+  # truth. Bypasses the image's /init on purpose — it only copies files.
+  seed:
+    image: *image
+    container_name: hermes-friend-seed
+    user: "0:0"
+    network_mode: none
+    entrypoint: ["sh", "-c"]
+    # 10000 is the image's default `hermes` uid/gid. $$ escapes compose interpolation.
+    command:
+      - for f in /seed/*; do install -o 10000 -g 10000 -m 640 "$$f" /opt/data/; done
+    volumes:
+      - ./config:/seed:ro
+      - hermes-data:/opt/data
+    restart: "no"
+
+  hermes:
+    # Pinned: bump deliberately. Tags: hub.docker.com/r/nousresearch/hermes-agent/tags
+    image: *image
+    container_name: hermes-friend
+    restart: unless-stopped
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+      egress:
+        condition: service_started
+    # `gateway run` is supervised by s6 inside the image; HERMES_DASHBOARD=1 adds
+    # the dashboard as a second supervised service in the same container.
+    command: ["gateway", "run"]
+    networks:
+      - agent
+
+    volumes:
+      # All Hermes state (sessions, memories, skills, logs, its own .env). A named
+      # volume, not a bind mount: on Docker Desktop for Mac a bind mount is
+      # virtiofs, where Hermes can't chmod its gateway.sock to 0600 (local chat
+      # then refuses to connect) and SQLite WAL can corrupt state.db.
+      # Never point this at ~/.hermes: two gateways must not share a data dir.
+      - hermes-data:/opt/data
+
+    environment:
+      # Everything outbound (Venice, Telegram, web tools, curl in the terminal
+      # tool) goes through the proxy; there is no other route anyway.
+      HTTP_PROXY: http://egress:3128
+      HTTPS_PROXY: http://egress:3128
+      http_proxy: http://egress:3128
+      https_proxy: http://egress:3128
+      NO_PROXY: localhost,127.0.0.1,::1
+      no_proxy: localhost,127.0.0.1,::1
+      TELEGRAM_PROXY: http://egress:3128
+
+      # LLM: Venice AI, key_env name used in config/config.yaml.
+      HERMES_CUSTOM_API_VENICE_AI_API_KEY: ${VENICE_API_KEY}
+
+      # Telegram (long polling: outbound only, no inbound port needed).
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_ALLOWED_USERS: ${TELEGRAM_ALLOWED_USERS}
+
+      # Dashboard. Inside the container it binds 0.0.0.0 (so the forwarder can
+      # reach it), which makes Hermes require an auth provider or refuse to start.
+      HERMES_DASHBOARD: "1"
+      HERMES_DASHBOARD_BASIC_AUTH_USERNAME: ${HERMES_DASHBOARD_USERNAME}
+      HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: ${HERMES_DASHBOARD_PASSWORD}
+      # Signs session cookies; keeps logins valid across restarts.
+      HERMES_DASHBOARD_BASIC_AUTH_SECRET: ${HERMES_DASHBOARD_SECRET}
+
+      # Web search (web.backend: brave-free in config.yaml). Optional.
+      BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
+
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "2.0"
+
+  egress:
+    image: ubuntu/squid:6.6-24.04_edge
+    container_name: hermes-friend-egress
+    restart: unless-stopped
+    networks:
+      - agent
+      - edge
+    volumes:
+      - ./egress/squid.conf:/etc/squid/squid.conf:ro
+
+  # Publishes the dashboard on this Mac's loopback. Host port is NOT 9119, so it
+  # never collides with the host's own `hermes dashboard`.
+  dashboard:
+    image: alpine/socat:1.8.0.3
+    container_name: hermes-friend-dashboard
+    restart: unless-stopped
+    depends_on:
+      - hermes
+    networks:
+      - agent
+      - edge
+    ports:
+      - "127.0.0.1:${HERMES_DASHBOARD_HOST_PORT:-9120}:9119"
+    command: ["TCP-LISTEN:9119,fork,reuseaddr", "TCP:hermes:9119"]
+
+  # `hermes backup` (WAL-safe SQLite snapshots + everything else in /opt/data)
+  # into ./backups on the host, at start and then every N hours, keeping the
+  # newest HERMES_BACKUP_KEEP zips. No network at all.
+  backup:
+    image: *image
+    container_name: hermes-friend-backup
+    restart: unless-stopped
+    user: "10000:10000"
+    network_mode: none
+    depends_on:
+      - hermes
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        sleep 60
+        while true; do
+          /opt/hermes/.venv/bin/hermes backup -o /backups -k "$${HERMES_BACKUP_KEEP}" \
+            || echo "backup failed" >&2
+          sleep $$(( HERMES_BACKUP_INTERVAL_HOURS * 3600 ))
+        done
+    environment:
+      HERMES_HOME: /opt/data
+      HERMES_BACKUP_KEEP: ${HERMES_BACKUP_KEEP:-14}
+      HERMES_BACKUP_INTERVAL_HOURS: ${HERMES_BACKUP_INTERVAL_HOURS:-24}
+    volumes:
+      - hermes-data:/opt/data
+      - ./backups:/backups
+
+volumes:
+  hermes-data:
