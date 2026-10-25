@@ -29,3 +29,8 @@ web:
 memory:
   memory_enabled: true
   user_profile_enabled: true
+auxiliary:
+  # Chat titles go to Kimi too, which can take longer than the 30s default;
+  # on a timeout Hermes falls back to a plain derived title.
+  title_generation:
+    timeout: 90
