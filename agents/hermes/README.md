@@ -108,6 +108,20 @@ Backups cover those cases. The friend's agent is backed up to the NAS by the sam
 - It refuses to overwrite a good copy with a blank or reset agent.
 - Failures alert on Discord, including when Docker Desktop isn't running at 01:00.
 
+What is **not** backed up: the agent's `workspace/` (files it created for her), the same as for the host's profiles. Caches and logs aren't backed up either.
+
+**One-time install:** the container support is new in `hermes-backup.sh` (2026-10-25), and the nightly job runs the installed copy in `/usr/local/sbin`. Until you reinstall it, her agent isn't backed up:
+
+```bash
+sudo install -m 755 -o root -g wheel ~/repos/nas/scripts/hermes-backup/hermes-backup.sh /usr/local/sbin/
+```
+
+Then trigger a run to confirm it. Expect `[hermes-friend] copied to …`:
+
+```bash
+sudo launchctl kickstart -k system/local.hermes-backup && sleep 15 && tail -5 /var/log/hermes-backup.log
+```
+
 The copy is in `/Volumes/tank/documents/hermes/containers/hermes-friend/current`. Older versions come from tank's snapshots (7 daily, 4 weekly, 6 monthly) and the off-site copy. The job works while the stack is down too, as long as Docker Desktop runs.
 
 Check the last copy:
