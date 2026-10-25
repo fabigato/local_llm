@@ -5,7 +5,7 @@ A self-contained [Hermes Agent](https://github.com/NousResearch/hermes-agent) th
 - the repo-root `docker-compose.yml` (its own compose project, `hermes-friend`, and its own networks);
 - the Hermes app and gateway installed on this host (`~/.hermes`): different data, different bot, different ports.
 
-The LLM is **Kimi K2.6 on Venice AI** (`e2ee-kimi-k2-6`), the same provider block as the host's `tezcatlipoca` profile. It does not use the local LM Studio, and it can't reach it (see [Network isolation](#network-isolation)).
+The LLM is **Kimi K2.6 on Venice AI** (`e2ee-kimi-k2-6`), the same provider block as the host's `tezcatlipoca` profile, and it is [locked to that model](#locked-to-one-model). Web search and page fetching work [the same way as on tezcatlipoca](#web-search-and-fetch) (Brave + Tavily). It does not use the local LM Studio, and it can't reach it (see [Network isolation](#network-isolation)). Her persona, memories and chats [never go to git](#privacy-what-stays-out-of-git).
 
 ## Ports and endpoints
 
@@ -33,10 +33,12 @@ The dashboard is the browser counterpart of the Hermes app. **Chat** runs the fu
 | Path | Purpose | In git |
 |---|---|---|
 | `docker-compose.yml` | All services above. | yes |
-| `config/config.yaml` | Hermes config: model/provider, tools, memory. | yes |
-| `config/SOUL.md` | Optional persona. Create it and it's copied in like `config.yaml`. | if you add it |
+| `config/config.yaml` | Hermes config: model/provider, tools, memory. Generic, nothing private. | yes |
+| `config/SOUL.md` | Optional persona for her bot. Create it and it's copied in like `config.yaml`. | **no**, ignored |
+| `config/*` (anything else) | Copied into the volume too. | **no**, ignored |
+| `managed/config.yaml` | Pinned settings she and the agent can't change: model, web backends, Telegram slash commands. Mounted read-only at `/etc/hermes`. | yes |
 | `egress/squid.conf` | Egress policy: public internet yes; this Mac, LAN and tailnet no. | yes |
-| `.env` | Secrets: Venice key, bot token, allowed users, dashboard login. | **no** |
+| `.env` | Secrets: Venice, Brave and Tavily keys, bot token, allowed users, dashboard login. | **no** |
 | `.env.example` | Template for `.env`. | yes |
 
 ## First-time setup
@@ -53,7 +55,7 @@ The dashboard is the browser counterpart of the Hermes app. **Chat** runs the fu
    openssl rand -base64 24   # HERMES_DASHBOARD_PASSWORD
    openssl rand -base64 32   # HERMES_DASHBOARD_SECRET
    ```
-   Optionally set `BRAVE_SEARCH_API_KEY` to enable web search.
+   Set `BRAVE_SEARCH_API_KEY` and `TAVILY_API_KEY` for web search and page fetching (see [Web search and fetch](#web-search-and-fetch)).
 4. Start it (next section), then send your friend the bot's `t.me/<botname>` link and have them press **Start**.
 
 ## Run, stop, and maintain
@@ -153,7 +155,53 @@ Why a named volume and not a folder here: on Docker Desktop for Mac, bind mounts
 
 - **Edit `config/config.yaml`, then `docker compose up -d`.** If only the config changed, `up` won't recreate `hermes`, so also run `docker compose restart hermes`.
 - Changes made in the dashboard's **Config** page work, but they're lost the next time you run `up`. Copy anything you want to keep back into `config/config.yaml`.
+- Settings in `managed/config.yaml` (model, web backends, slash-command access) win over everything here and can't be changed from the dashboard. Edit that file and run `docker compose restart hermes`.
 - API keys saved in the dashboard's **Keys** page go into Hermes' own `.env` inside the volume and are not overwritten. Values set in this folder's `.env` take precedence over them.
+
+## Locked to one model
+
+Only Venice's `e2ee-kimi-k2-6` runs here. Neither your friend nor the agent can switch it:
+
+- **Managed scope.** [`managed/config.yaml`](managed/config.yaml) is mounted read-only at `/etc/hermes`, Hermes' managed-config location. Its values win over `config.yaml`, the dashboard and `hermes config set`. It pins:
+  - the model and the Venice provider;
+  - no fallback models;
+  - subagents (`delegation`) on the same model;
+  - Mixture of Agents off.
+
+  `hermes config set model.default …` inside the container answers *"it is managed by your administrator"*. Writing to the file fails with *Read-only file system*, even as root in the container.
+- **Telegram slash-command gating.** Without it, `/model` in Telegram switches the model for a chat. The admin list is set to `"0"`, which matches no Telegram user, so every allowed user is a non-admin and can run only `user_allowed_commands` plus `/help` and `/whoami`. Allowed: `/start /new /retry /undo /stop /title /status /context /usage /sessions /resume /save /compress /btw /queue /steer /voice /approve /deny /memory /commands`. Blocked include:
+  - `/model`, `/reasoning`, `/fast`, `/moa`: other models, or more spend per message;
+  - `/loop`, `/heartbeat`, `/goal`, `/bg`: unattended spend;
+  - `/yolo`, `/approvals`, `/personality`;
+  - every admin or debug command (`/debug` uploads logs).
+
+  Verified by resolving the live policy for her ID: `/model`, `/reasoning` and `/debug` are denied; `/new`, `/start` and `/approve` are allowed. She can send `/whoami` to see her own access.
+
+To change any of this, edit `managed/config.yaml` and run `docker compose restart hermes`.
+
+One gap Hermes can't close: the Venice key is in the container, so a determined user could call Venice directly with another model (see [Things to know](#things-to-know)). The spending limit on her Venice key is the backstop.
+
+## Web search and fetch
+
+Same backends as tezcatlipoca, pinned in `managed/config.yaml`:
+
+- `web.backend: brave-free` for search, with `BRAVE_SEARCH_API_KEY`;
+- `web.extract_backend: tavily` for reading pages, with `TAVILY_API_KEY`;
+- `web.use_gateway: false`.
+
+Both keys go in `.env`. They are currently **copies of tezcatlipoca's keys**, so her searches count against your Brave and Tavily quotas. If she uses up a free tier, tezcatlipoca's search stops working too. Get her free keys of her own ([Brave Search API](https://brave.com/search/api/), [Tavily](https://tavily.com)), put them in `.env`, then run `docker compose up -d`.
+
+Both APIs are public internet, so the egress proxy lets them through. Verified end to end: a question that needed a search and a page read went to `api.search.brave.com` and `api.tavily.com`, and the answer quoted the fetched page.
+
+## Privacy: what stays out of git
+
+Her bot's persona, memories and conversations are private and never go to GitHub:
+
+- **Persona:** `config/SOUL.md`, and anything else in `config/` except the generic `config.yaml`, is git-ignored (see `.gitignore`). It only exists on this Mac and, once copied into the volume, in the NAS backup.
+- **Memories and chat history:** they exist only inside the Docker volume (`memories/`, `state.db`, `sessions/`), never in this folder. The only copies are on the NAS: `tank/documents`, its snapshots, and the encrypted off-site copy.
+- **Secrets:** `.env` is git-ignored.
+
+Before committing anything in this folder, `git status` should list only tracked files: `docker-compose.yml`, `config/config.yaml`, `managed/config.yaml`, `egress/squid.conf`, `.env.example`, `.gitignore` and `README.md`.
 
 ## Network isolation
 
@@ -183,7 +231,7 @@ Expect `200` for the first URL and `403` for the rest.
 
 ## Things to know
 
-- **Your friend can see the keys inside the container.** The Venice key and bot token are environment variables there, so a determined user could extract them with the terminal tool. Hermes masks them in output, but don't rely on that. Give this container **its own Venice API key with a spending limit**, not the tezcatlipoca one, so you can cap or revoke it alone. Your other secrets (`~/.hermes`, the repo-root `.env`) are not in the container.
+- **A determined user can extract the keys inside the container.** Tested: Hermes strips most of them (Brave, Tavily, bot token, dashboard password) from the shell tool's environment. The Venice key still shows there, because a custom provider's `key_env` isn't on Hermes' strip list. Either way, all four keys can be read from the gateway process's own environment (`/proc/<pid>/environ`) by anything running as the agent's user. Treat every key here as visible to her. That's why her Venice key is separate and capped, and why she should get her own Brave and Tavily keys. Your other secrets (`~/.hermes`, the repo-root `.env`) are not in the container.
 - **Cost.** Every message your friend sends is billed to the Venice account behind `VENICE_API_KEY`.
 - **The internet is open.** The proxy blocks your Mac, LAN and tailnet, not the public web. That's needed for search, fetch and browsing. To restrict it further, add a `dstdomain` allowlist in `egress/squid.conf`.
 - **Never mount `~/.hermes`** into this container. Two gateways sharing one data dir corrupt sessions and memory.

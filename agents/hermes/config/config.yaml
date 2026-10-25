@@ -1,7 +1,8 @@
 # Hermes config for the friend container. Source of truth: the `seed` service
 # copies it to /opt/data/config.yaml on every `docker compose up`, so edit it
 # here — changes made in the dashboard's Config page are lost on the next up.
-# Keys not set here use Hermes defaults.
+# Keys not set here use Hermes defaults. The model, web backends and Telegram
+# slash-command access are also pinned in ../managed/config.yaml, which wins.
 model:
   default: e2ee-kimi-k2-6
   provider: venice
@@ -26,6 +27,8 @@ terminal:
   backend: local
 web:
   backend: brave-free
+  extract_backend: tavily
+  use_gateway: false
 memory:
   memory_enabled: true
   user_profile_enabled: true

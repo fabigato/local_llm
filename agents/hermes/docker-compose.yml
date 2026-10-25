@@ -57,6 +57,9 @@ services:
       # then refuses to connect) and SQLite WAL can corrupt state.db.
       # Never point this at ~/.hermes: two gateways must not share a data dir.
       - hermes-data:/opt/data
+      # Managed scope (model lock, web backends, slash-command gating). Read-only,
+      # so neither the user nor the agent's shell can change it.
+      - ./managed:/etc/hermes:ro
 
     environment:
       # Everything outbound (Venice, Telegram, web tools, curl in the terminal
@@ -84,8 +87,9 @@ services:
       # Signs session cookies; keeps logins valid across restarts.
       HERMES_DASHBOARD_BASIC_AUTH_SECRET: ${HERMES_DASHBOARD_SECRET}
 
-      # Web search (web.backend: brave-free in config.yaml). Optional.
-      BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
+      # Web search (Brave) and page fetch (Tavily), as on tezcatlipoca.
+      BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY}
+      TAVILY_API_KEY: ${TAVILY_API_KEY}
 
     deploy:
       resources:

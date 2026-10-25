@@ -1,0 +1,71 @@
+# Hermes managed scope: values here win over /opt/data/config.yaml, the
+# dashboard and `hermes config set`, key by key. Mounted read-only at
+# /etc/hermes (the default managed dir), so neither your friend nor the agent's
+# own shell can change them. Edit here, then `docker compose restart hermes`.
+# See the README section "Locked to one model".
+
+# Only Venice Kimi K2.6, the same provider block as the host's tezcatlipoca profile.
+model:
+  default: e2ee-kimi-k2-6
+  provider: venice
+  base_url: https://api.venice.ai/api/v1
+providers:
+  venice:
+    name: Venice AI
+    base_url: https://api.venice.ai/api/v1
+    key_env: HERMES_CUSTOM_API_VENICE_AI_API_KEY
+    model: e2ee-kimi-k2-6
+    api_mode: chat_completions
+    discover_models: false
+# No fallback to another model, for the agent or its subagents.
+fallback_providers: []
+delegation:
+  provider: venice
+  model: e2ee-kimi-k2-6
+  fallback_providers: []
+# Mixture of Agents calls other models; keep it off.
+moa:
+  active_preset: ""
+
+# Web search and fetch, the same as tezcatlipoca: Brave for search, Tavily for
+# page extraction. Keys come from ./.env.
+web:
+  backend: brave-free
+  extract_backend: tavily
+  use_gateway: false
+
+gateway:
+  platforms:
+    telegram:
+      extra:
+        # Slash-command gating. A non-empty admin list turns it on; "0" matches
+        # no Telegram user, so nobody is an admin and every allowed user gets
+        # only the commands below plus /help and /whoami. Left out on purpose:
+        # /model, /reasoning, /fast, /moa (other models or more cost), /loop,
+        # /heartbeat, /goal, /bg (unattended spend), /yolo, /approvals,
+        # /personality, and admin/debug commands (/debug uploads logs).
+        allow_admin_from: ["0"]
+        user_allowed_commands: &user_cmds
+          - start
+          - new
+          - retry
+          - undo
+          - stop
+          - title
+          - status
+          - context
+          - usage
+          - sessions
+          - resume
+          - save
+          - compress
+          - btw
+          - queue
+          - steer
+          - voice
+          - approve
+          - deny
+          - memory
+          - commands
+        group_allow_admin_from: ["0"]
+        group_user_allowed_commands: *user_cmds

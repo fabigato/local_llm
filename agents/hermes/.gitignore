@@ -1,1 +1,8 @@
 .env
+
+# config/ is copied into the agent's volume on every `up`. Only the generic
+# config.yaml is public; anything else there (SOUL.md — her bot's persona) is
+# private and must never reach GitHub. Her memories and chat history live only
+# in the Docker volume (backed up to the NAS), never in this repo.
+config/*
+!config/config.yaml

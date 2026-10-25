@@ -570,7 +570,8 @@ than the container's, which looked like two models doing memory work. Only one e
 A separate Hermes Agent container that a friend uses from her own Telegram. It has its own compose project (`hermes-friend`) in [agents/hermes](agents/hermes/README.md) and is **not** part of the root `docker-compose.yml`. Start and stop it from that folder. Its README has setup, commands, ports and restore steps.
 
 - **Dashboard:** `http://127.0.0.1:9120`, loopback only, with its own login. The host's own Hermes keeps 9119 and 8642.
-- **LLM:** Venice AI Kimi (`e2ee-kimi-k2-6`), not LM Studio.
+- **LLM:** Venice AI Kimi (`e2ee-kimi-k2-6`), not LM Studio. It's locked to that model: a read-only managed config pins it, and Telegram slash-command gating blocks `/model`. Web search and fetch use Brave + Tavily, like tezcatlipoca.
+- **Private by design:** her bot's `SOUL.md` (anything in `agents/hermes/config/` except `config.yaml`) is git-ignored. Her memories and chats live only in the Docker volume and on the NAS, never in this repo.
 - **Sandboxed:** it sits on an internal-only Docker network behind a Squid proxy that allows the public internet and refuses this Mac, the LAN and the tailnet. From a plain container, Hindsight's memory banks and ComfyUI's prompt history were readable without auth.
 - **Data:** in the Docker volume `hermes-friend_hermes-data`, which survives container crashes and recreation.
 - **Backups:** it's backed up nightly to the NAS by `~/repos/nas` [hermes-backup](../nas/scripts/hermes-backup/README.md), like the host's Hermes agents, into `/Volumes/tank/documents/hermes/containers/hermes-friend/current`. Nights without changes are skipped. History comes from tank snapshots and the off-site copy. Docker Desktop must be running at 01:00. The agent's `workspace/` (files it created) isn't backed up.
