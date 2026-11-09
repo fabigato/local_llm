@@ -17,6 +17,25 @@ foreground, so `KeepAlive` works, then runs `lms server start` and `lms load`
 against it each time. A failed load is logged but doesn't stop the server: JIT
 loading still serves any downloaded model on demand.
 
+After that it runs a **watchdog** (since 2026-11-09), because the load at
+startup isn't enough on its own:
+
+- **It repairs the pinned load.** If only the model worker crashes, llmster
+  stays up and nothing reloads the model. Clients ask for the alias
+  `qwen3.8-27b`, which JIT can't resolve, so they get "No models loaded". A
+  request naming the full model key then JIT-loads it with LM Studio's
+  defaults: 8192 context and a 1 h TTL. OpenClaw then fails with "tokens to
+  keep … greater than the context length". Every 30 s the watchdog reloads the
+  alias if it's missing, isn't at 262144 or has a TTL. It also unloads any
+  other copy of the same model. Other models are left alone.
+- **It purges idle KV cache.** LM Studio keeps each slot's last conversation
+  in RAM after the reply ends. Measured: 24 GB idle, 27 GB a minute after a
+  60k-token request. Four forgotten full-context chats could hold ~64 GiB.
+  After 1 h with no request, if the worker holds more than 2 GiB over the
+  weights, the watchdog unloads and immediately reloads the model, ~25 s.
+  That's not a TTL on purpose: a TTL also unloads the weights, and then the
+  next alias request fails.
+
 ## Files
 
 | File | Installed to |
@@ -73,7 +92,18 @@ first, run `lms daemon update`, then `bootstrap` again. The script finds the new
 llmster version on its own.
 
 `lms` commands from your terminal (`ls`, `ps`, `get`, `load`, `unload`) talk to
-the daemon's llmster as normal.
+the daemon's llmster as normal. **But the watchdog undoes an `lms unload
+qwen3.8-27b` within 30 s.** To keep the model unloaded, e.g. to give ComfyUI
+the memory, pause the watchdog first:
+
+```sh
+touch ~/.lmstudio/watchdog.pause && lms unload qwen3.8-27b
+rm ~/.lmstudio/watchdog.pause       # the watchdog reloads it within 30 s
+grep watchdog /var/log/llmster-server.log   # what it has done
+```
+
+The timings (check interval, idle purge, back-off) are variables at the top of
+the script.
 
 ## Reasoning effort and the chat template patch
 
